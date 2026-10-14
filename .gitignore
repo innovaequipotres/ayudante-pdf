@@ -20,7 +20,7 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 *.pem
-
+ 
 # Sistema y herramientas
 .DS_Store
 Thumbs.db
