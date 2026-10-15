@@ -1,0 +1,13 @@
+# Runtime
+fastapi==0.143.1
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+python-dotenv==1.2.4
+sqlalchemy==2.1.4
+requests==2.34.2
+google-genai==2.30.1
+
+# Desarrollo / tests
+pytest==9.1.1
+httpx==0.28.1
