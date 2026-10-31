@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     )
 
     @property
+    def max_upload_bytes(self) -> int:
+        """Devuelve el tamaño máximo de subida en bytes."""
+        return self.max_upload_mb * 1024 * 1024
+
+    @property
     def cors_origin_list(self) -> list[str]:
         """Devuelve los orígenes de CORS como lista, ignorando espacios vacíos."""
         return [
