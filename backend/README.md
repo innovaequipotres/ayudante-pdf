@@ -111,7 +111,42 @@ curl -X POST http://127.0.0.1:8000/api/v1/sessions/text \
 curl http://127.0.0.1:8000/api/v1/sessions/<session_id>
 ```
 
-> **Almacenamiento temporal:** por ahora las sesiones viven en memoria del
+## Endpoints de contenido
+
+Una vez creada la sesión, estos endpoints extraen y consultan sus bloques de
+contenido (títulos, párrafos, listas e imágenes).
+
+| Método | Ruta                                    | Descripción                                             |
+| ------ | --------------------------------------- | ------------------------------------------------------- |
+| `POST` | `/api/v1/sessions/{session_id}/extract` | Extrae el contenido y marca la sesión como `extracted`. |
+| `GET`  | `/api/v1/sessions/{session_id}/content` | Devuelve el contenido ya extraído.                      |
+
+El primer `POST` procesa el material. Si se repite, devuelve el contenido
+guardado sin volver a procesarlo. Un `GET` antes de la extracción responde
+`409 content_not_extracted`.
+
+Errores propios de estos endpoints:
+
+| HTTP  | `code`                  | Cuándo                                                      |
+| ----- | ----------------------- | ----------------------------------------------------------- |
+| `404` | `session_not_found`     | La sesión indicada no existe.                               |
+| `409` | `content_not_extracted` | Todavía no se llamó a `POST /extract`.                      |
+| `422` | `no_extractable_text`   | El material no tiene texto (por ejemplo, un PDF escaneado). |
+| `422` | `invalid_pdf`           | El PDF está dañado o protegido.                             |
+
+Ejemplos:
+
+```bash
+# Extraer contenido
+curl -X POST http://127.0.0.1:8000/api/v1/sessions/<session_id>/extract
+
+# Consultar contenido extraído
+curl http://127.0.0.1:8000/api/v1/sessions/<session_id>/content
+```
+
+> **Almacenamiento temporal:** por ahora las sesiones y los contenidos extraídos
+> viven en memoria del proceso. Se pierden al reiniciar el servidor y no se
+> comparten entre workers. Más adelante se reemplazarán por una base de datos.
 > proceso. Se pierden al reiniciar el servidor y no se comparten entre workers.
 > Más adelante se reemplazarán por una base de datos.
 
@@ -148,19 +183,28 @@ backend/
 │   ├── api/
 │   │   └── v1/
 │   │       └── endpoints/
+│   │           ├── content.py     # Endpoints de contenido
 │   │           └── sessions.py    # Endpoints de sesiones
 │   ├── core/
 │   │   ├── config.py              # Configuración y variables de entorno
 │   │   └── exceptions.py          # Errores globales con formato {code, message}
+│   ├── processors/
+│   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
+│   │   └── text_processor.py      # Extracción de bloques desde texto plano
 │   ├── schemas/
 │   │   ├── common.py              # ErrorResponse
+│   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
 │   │   └── session.py             # SourceType, SessionStatus, TextInput, SessionResponse
 │   ├── services/
+│   │   ├── content_service.py     # Extracción y resumen de contenido
 │   │   └── session_service.py     # Lógica de sesiones (almacenamiento en memoria)
 │   └── main.py                    # Punto de entrada de FastAPI, CORS y routers
 ├── tests/
 │   ├── conftest.py
-│   └── test_sessions.py
+│   ├── test_content.py
+│   ├── test_pdf_processor.py
+│   ├── test_sessions.py
+│   └── test_text_processor.py
 ├── .env.example
 ├── requirements.txt
 ├── requirements-dev.txt
