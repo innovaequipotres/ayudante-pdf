@@ -10,10 +10,12 @@ from uuid import UUID, uuid4
 
 from app.core.config import settings
 from app.core.exceptions import AppError
+from app.schemas.content import ExtractedContent
 from app.schemas.session import SessionResponse, SessionStatus, SourceType, TextInput
 
 _sessions: dict[UUID, SessionResponse] = {}
 _raw_contents: dict[UUID, bytes | str] = {}
+_extracted_contents: dict[UUID, ExtractedContent] = {}
 
 
 def _create_session(
@@ -111,3 +113,17 @@ def get_raw_content(session_id: UUID) -> bytes | str:
     """Devuelve el contenido original (bytes del PDF o texto pegado)."""
     get_session(session_id)
     return _raw_contents[session_id]
+
+
+def get_extracted(session_id: UUID) -> ExtractedContent | None:
+    """Devuelve el contenido extraído o ``None`` si todavía no se extrajo."""
+    return _extracted_contents.get(session_id)
+
+
+def save_extracted(content: ExtractedContent) -> None:
+    """Guarda el contenido extraído y marca la sesión como ``extracted``."""
+    session = get_session(content.session_id)
+    _sessions[content.session_id] = session.model_copy(
+        update={"status": SessionStatus.EXTRACTED}
+    )
+    _extracted_contents[content.session_id] = content
