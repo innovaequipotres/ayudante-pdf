@@ -10,9 +10,11 @@ def clean_session_store():
     """Limpia el almacenamiento en memoria antes y después de cada test."""
     session_service._sessions.clear()
     session_service._raw_contents.clear()
+    session_service._extracted_contents.clear()
     yield
     session_service._sessions.clear()
     session_service._raw_contents.clear()
+    session_service._extracted_contents.clear()
 
 
 @pytest.fixture
