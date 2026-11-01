@@ -341,30 +341,59 @@ export default function EditarDocumentoPage() {
     setEditingId(null);
     setEditedProposal("");
   }
+function handleSaveProposal(suggestion: Suggestion): void {
+  const trimmedProposal = editedProposal.trim();
 
-  function handleSaveProposal(suggestion: Suggestion): void {
-    const trimmedProposal = editedProposal.trim();
+  if (!trimmedProposal) {
+    setNotice("La propuesta no puede quedar vacía.");
+    return;
+  }
 
-    if (!trimmedProposal) {
-      setNotice("La propuesta no puede quedar vacía.");
+  if (trimmedProposal === suggestion.replacement) {
+    setEditingId(null);
+    setEditedProposal("");
+    setNotice("No se realizaron cambios en la propuesta.");
+    return;
+  }
+
+  if (suggestion.status === "applied") {
+    const updatedContent = replaceFlexibleText(
+      content,
+      suggestion.replacement,
+      trimmedProposal,
+    );
+
+    if (updatedContent === null) {
+      setNotice(
+        "No se encontró la propuesta aplicada en el documento. No se guardaron los cambios.",
+      );
       return;
     }
 
     saveSnapshot();
-
-    setSuggestions((previous) =>
-      previous.map((item) =>
-        item.id === suggestion.id
-          ? { ...item, replacement: trimmedProposal }
-          : item,
-      ),
-    );
-
-    setEditingId(null);
-    setEditedProposal("");
-    setNotice("La propuesta se actualizó. Podés revisarla antes de aplicarla.");
+    setContent(updatedContent);
+  } else {
+    saveSnapshot();
   }
 
+  setSuggestions((previous) =>
+    previous.map((item) =>
+      item.id === suggestion.id
+        ? { ...item, replacement: trimmedProposal }
+        : item,
+    ),
+  );
+
+  setEditingId(null);
+  setEditedProposal("");
+
+  setNotice(
+    suggestion.status === "applied"
+      ? "La propuesta y el documento se actualizaron correctamente."
+      : "La propuesta se actualizó. Podés revisarla antes de aplicarla.",
+  );
+}
+  
   function handleUndo(): void {
     if (undoStack.length === 0) {
       setNotice("No hay cambios para deshacer.");
