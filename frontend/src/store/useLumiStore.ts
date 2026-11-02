@@ -8,8 +8,10 @@ interface LumiStore {
   user: typeof mockUser;
   documents: LumiDocument[];
   diagnostics: DiagnosticResult[];
+  pendingUpload: File | null;
   activeDocument: LumiDocument | null;
   activeDiagnostic: DiagnosticResult | null;
+  setPendingUpload: (file: File | null) => void;
   setActiveDocument: (id: string) => void;
   updateBarrierStatus: (
     barrierId: string,
@@ -26,8 +28,10 @@ export const useLumiStore = create<LumiStore>((set) => ({
   user: mockUser,
   documents: mockDocuments,
   diagnostics: [mockDiagnostic],
+  pendingUpload: null,
   activeDocument: initialActiveDocument,
   activeDiagnostic: initialActiveDocument ? mockDiagnostic : null,
+  setPendingUpload: (file) => set({ pendingUpload: file }),
 
   setActiveDocument: (id) =>
     set((state) => {
