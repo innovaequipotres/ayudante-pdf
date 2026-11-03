@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AccesibleIA",
-  description: "Herramienta de accesibilidad pedagógica con IA",
+  title: "LUMI | Documentos accesibles con IA",
+  description:
+    "Analizá y adaptá documentos PDF educativos para crear materiales más accesibles e inclusivos con ayuda de IA.",
 };
 
 export default function RootLayout({
