@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BookOpenCheck, FileText, Sparkles } from "lucide-react";
+import { FileText, Sparkles } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Inicio | LUMI",
@@ -10,24 +10,14 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <main className="min-h-svh bg-slate-50 px-5 py-8 sm:px-8">
-      <div className="mx-auto flex max-w-6xl items-center justify-between border-b border-slate-200 pb-5">
-        <Link
-          href="/"
-          aria-label="LUMI, ir al inicio"
-          className="inline-flex items-center gap-2.5 rounded-md"
-        >
-          <span className="grid size-10 place-items-center rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 text-white">
-            <BookOpenCheck aria-hidden="true" className="size-5" />
-          </span>
-          <span className="text-xl font-extrabold text-slate-900">LUMI</span>
-        </Link>
-        <Link
-          href="/login"
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-blue-600"
-        >
-          Salir de la demostración
-        </Link>
-      </div>
+      <div className="mx-auto flex max-w-6xl justify-end">
+  <Link
+    href="/login"
+    className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-blue-600"
+  >
+    Salir de la demostración
+  </Link>
+</div>
 
       <section className="mx-auto max-w-6xl py-14 sm:py-20">
         <p className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800">
