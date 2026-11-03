@@ -1,4 +1,3 @@
-
 import type { ReactNode } from "react";
 import Sidebar from "../../components/Sidebar";
 
@@ -8,7 +7,7 @@ export default function WorkspaceLayout({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <Sidebar />
 
       <main

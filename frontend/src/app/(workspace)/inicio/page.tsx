@@ -1,4 +1,3 @@
-
 export default function InicioPage() {
   return (
     <section className="p-6 sm:p-10">
@@ -8,7 +7,7 @@ export default function InicioPage() {
         </p>
 
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          ¡Bienvenida a InclusIA!
+          ¡Bienvenida a LUMI!
         </h1>
 
         <p className="mt-3 max-w-2xl text-slate-600">
@@ -23,8 +22,8 @@ export default function InicioPage() {
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Desde el menú lateral podrás acceder a tus archivos, consultar el
-          historial de análisis y configurar tus preferencias.
+          Desde la barra de navegación superior podrás acceder a tus archivos,
+          consultar el historial de análisis y configurar tus preferencias.
         </p>
       </div>
     </section>

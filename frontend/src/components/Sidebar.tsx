@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -9,59 +8,88 @@ import {
   History,
   Settings,
   Accessibility,
+  CircleHelp,
 } from "lucide-react";
 
 const navigation = [
   { label: "Inicio", href: "/inicio", icon: House },
   { label: "Mis archivos", href: "/archivos", icon: FolderOpen },
   { label: "Historial", href: "/historial", icon: History },
-  { label: "Configuración", href: "/configuracion", icon: Settings },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white px-4 py-6">
-      <Link href="/inicio" className="mb-10 flex items-center gap-3 px-2">
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-          <Accessibility size={25} aria-hidden="true" />
-        </span>
-        <span className="text-xl font-bold tracking-tight text-slate-900">
-          Inclus<span className="text-violet-600">IA</span>
-        </span>
-      </Link>
+    <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white">
+      <div className="mx-auto flex min-h-20 w-full max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-8">
+        {/* Logo */}
+        <Link
+          href="/inicio"
+          className="flex items-center gap-3"
+          aria-label="LUMI - Ir al inicio"
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+            <Accessibility size={25} aria-hidden="true" />
+          </span>
 
-      <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        Menú principal
-      </p>
+          <span className="text-xl font-bold tracking-tight text-slate-900">
+            LUM<span className="text-violet-600">I</span>
+          </span>
+        </Link>
 
-      <nav aria-label="Navegación principal" className="flex flex-col gap-2">
-        {navigation.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href;
+        {/* Navegación principal */}
+        <nav
+          aria-label="Navegación principal"
+          className="order-3 flex w-full items-center gap-1 overflow-x-auto md:order-2 md:w-auto"
+        >
+          {navigation.map(({ label, href, icon: Icon }) => {
+            const active = pathname === href;
 
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                active
-                  ? "bg-violet-100 text-violet-800"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              <Icon size={20} aria-hidden="true" />
-              <span>{label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+            return (
+              <Link
+                key={href}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-violet-100 text-violet-800"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                }`}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
+        </nav>
 
-      <div className="mt-auto rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-        <p className="font-semibold text-slate-700">InclusIA</p>
-        <p>Accesibilidad educativa con inteligencia artificial.</p>
+        {/* Acciones */}
+        <div className="order-2 flex items-center gap-2 md:order-3">
+          <Link
+            href="/ayuda"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          >
+            <CircleHelp size={18} aria-hidden="true" />
+            <span className="hidden sm:inline">Ayuda</span>
+          </Link>
+
+          <Link
+            href="/configuracion"
+            aria-label="Configuración"
+            aria-current={
+              pathname === "/configuracion" ? "page" : undefined
+            }
+            className={`rounded-lg p-2 transition-colors ${
+              pathname === "/configuracion"
+                ? "bg-violet-100 text-violet-800"
+                : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <Settings size={20} aria-hidden="true" />
+          </Link>
+        </div>
       </div>
-    </aside>
+    </header>
   );
 }
