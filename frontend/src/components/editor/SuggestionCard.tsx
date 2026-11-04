@@ -8,8 +8,6 @@ import { Button } from "@/components/ui/Button";
 
 const MAX_SUGGESTION_LENGTH = 500;
 
-type SuggestionCardState = "pending" | "editing" | "applied";
-
 export interface SuggestionCardProps {
   barrier: Barrier;
   onApply: (barrier: Barrier, acceptedSuggestion: string) => void;
@@ -21,19 +19,17 @@ export function SuggestionCard({
   onApply,
   onDismiss,
 }: SuggestionCardProps) {
-  const [state, setState] = useState<SuggestionCardState>(
-    barrier.status === "Aplicada" ? "applied" : "pending",
-  );
+  const [isEditing, setIsEditing] = useState(false);
   const [editedSuggestion, setEditedSuggestion] = useState(barrier.suggestion);
 
   function startEditing() {
     setEditedSuggestion(barrier.suggestion);
-    setState("editing");
+    setIsEditing(true);
   }
 
   function cancelEditing() {
     setEditedSuggestion(barrier.suggestion);
-    setState("pending");
+    setIsEditing(false);
   }
 
   function applySuggestion() {
@@ -44,9 +40,10 @@ export function SuggestionCard({
     }
 
     onApply(barrier, acceptedSuggestion);
-    setEditedSuggestion(acceptedSuggestion);
-    setState("applied");
+    setIsEditing(false);
   }
+
+  const isApplied = barrier.status === "Aplicada";
 
   return (
     <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -54,11 +51,7 @@ export function SuggestionCard({
         <h3 className="text-sm font-semibold text-slate-900">{barrier.type}</h3>
         <Badge
           variant={
-            state === "applied"
-              ? "Aplicada"
-              : state === "editing"
-                ? "En edición"
-                : barrier.severity
+            isApplied ? "Aplicada" : isEditing ? "En edición" : barrier.severity
           }
         />
       </header>
@@ -72,18 +65,18 @@ export function SuggestionCard({
         </p>
       </section>
 
-      {state === "applied" ? (
+      {isApplied ? (
         <section aria-label="Cambio aplicado">
           <h4 className="mb-1 text-xs font-semibold text-emerald-800">
             Cambio aplicado
           </h4>
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
             <p className="whitespace-pre-wrap wrap-break-word text-sm leading-5 text-emerald-950">
-              {editedSuggestion}
+              {barrier.suggestion}
             </p>
           </div>
         </section>
-      ) : state === "editing" ? (
+      ) : isEditing ? (
         <section aria-label="Modificar sugerencia" className="space-y-2">
           <label
             htmlFor={`suggestion-${barrier.id}`}
@@ -119,7 +112,7 @@ export function SuggestionCard({
       )}
 
       <footer className="flex flex-wrap justify-end gap-2">
-        {state === "pending" ? (
+        {!isApplied && !isEditing ? (
           <>
             <Button
               variant="outline"
@@ -146,7 +139,7 @@ export function SuggestionCard({
               Aplicar cambio
             </Button>
           </>
-        ) : state === "editing" ? (
+        ) : !isApplied && isEditing ? (
           <>
             <Button
               variant="outline"

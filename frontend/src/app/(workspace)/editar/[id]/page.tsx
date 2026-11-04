@@ -1,125 +1,55 @@
-
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import * as Dialog from "@radix-ui/react-dialog";
+import { diffWords } from "diff";
 import {
   ArrowLeft,
-  Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  CircleAlert,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
   FileText,
-  History,
-  Lightbulb,
+  Minus,
   Pencil,
-  RotateCcw,
-  RotateCw,
+  Plus,
+  Redo2,
   Save,
-  Sparkles,
+  Undo2,
   X,
 } from "lucide-react";
-
-type Category = "claridad" | "organizacion" | "estructura";
-type SuggestionStatus = "pending" | "applied" | "dismissed";
-
-type Suggestion = {
-  id: number;
-  title: string;
-  category: Category;
-  original: string;
-  replacement: string;
-  explanation: string;
-  status: SuggestionStatus;
-};
+import ExportModal from "@/components/modals/ExportModal";
+import { SuggestionCard } from "@/components/editor/SuggestionCard";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { downloadDocumentPdf, paginateDocumentText } from "@/lib/documentPdf";
+import { useLumiStore } from "@/store/useLumiStore";
+import type { Barrier, LumiDocument } from "@/types";
 
 type EditorSnapshot = {
   content: string;
-  suggestions: Suggestion[];
+  barriers: Barrier[];
 };
 
-type Tab = "documento" | "cambios";
-
-const INITIAL_CONTENT = `Guía para preparar una respuesta
-
-Para responder la consigna, leé atentamente el material y pensá qué información es importante.
-
-Escribí una respuesta con palabras claras. Si una oración tiene muchas ideas, separala para que sea más fácil comprenderla.
-
-Antes de entregar, revisá que tu respuesta incluya todos los puntos pedidos y presente las ideas en orden.`;
-
-const INITIAL_SUGGESTIONS: Suggestion[] = [
-  {
-    id: 1,
-    title: "Simplificar el lenguaje",
-    category: "claridad",
-    original:
-      "Para responder la consigna, leé atentamente el material y pensá qué información es importante.",
-    replacement:
-      "Leé la consigna. Después, leé el material y elegí la información más importante.",
-    explanation:
-      "La propuesta divide la indicación en pasos breves y directos para facilitar su comprensión.",
-    status: "pending",
-  },
-  {
-    id: 2,
-    title: "Dividir instrucciones largas",
-    category: "organizacion",
-    original:
-      "Escribí una respuesta con palabras claras. Si una oración tiene muchas ideas, separala para que sea más fácil comprenderla.",
-    replacement:
-      "Escribí una respuesta clara. Usá una idea por oración. Si una oración es muy larga, dividila en dos o más oraciones.",
-    explanation:
-      "Las instrucciones breves ayudan a identificar qué hacer y en qué orden.",
-    status: "pending",
-  },
-  {
-    id: 3,
-    title: "Mejorar la estructura",
-    category: "estructura",
-    original:
-      "Antes de entregar, revisá que tu respuesta incluya todos los puntos pedidos y presente las ideas en orden.",
-    replacement:
-      "Antes de entregar, revisá que tu respuesta:\n• Incluya todos los puntos pedidos.\n• Presente las ideas en orden.\n• Sea clara y fácil de entender.",
-    explanation:
-      "La lista permite comprobar cada requisito por separado antes de entregar la respuesta.",
-    status: "pending",
-  },
-];
-
-const CATEGORY_LABELS: Record<Category, string> = {
-  claridad: "Claridad",
-  organizacion: "Organización",
-  estructura: "Estructura",
-};
-
-const CATEGORY_STYLES: Record<Category, string> = {
-  claridad: "border-red-200 bg-red-50 text-red-800",
-  organizacion: "border-amber-200 bg-amber-50 text-amber-800",
-  estructura: "border-emerald-200 bg-emerald-50 text-emerald-800",
-};
-
-function cloneSuggestions(suggestions: Suggestion[]): Suggestion[] {
-  return suggestions.map((suggestion) => ({ ...suggestion }));
+function cloneBarriers(barriers: Barrier[]): Barrier[] {
+  return barriers.map((barrier) => ({ ...barrier }));
 }
 
-/**
- * Escapa los caracteres especiales para buscar texto literal.
- */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Busca el texto ignorando diferencias de espacios y saltos de línea.
- */
-function createFlexiblePattern(original: string): RegExp {
-  const normalized = original.trim();
+function createFlexiblePattern(value: string): RegExp | null {
+  const normalized = value.trim();
 
-  const pattern = normalized
-    .split(/\s+/)
-    .map(escapeRegExp)
-    .join("\\s+");
+  if (!normalized) {
+    return null;
+  }
+
+  const pattern = normalized.split(/\s+/).map(escapeRegExp).join("\\s+");
 
   return new RegExp(pattern, "g");
 }
@@ -129,47 +59,139 @@ function replaceFlexibleText(
   original: string,
   replacement: string,
 ): string | null {
-  if (!original.trim()) {
-    return null;
-  }
-
   const pattern = createFlexiblePattern(original);
-  const updatedContent = content.replace(pattern, replacement);
 
-  if (updatedContent === content) {
+  if (!pattern) {
     return null;
   }
 
-  return updatedContent;
+  const updatedContent = content.replace(pattern, replacement);
+  return updatedContent === content ? null : updatedContent;
 }
 
-function renderHighlightedContent(
+function findFlexibleRange(content: string, value: string) {
+  const pattern = createFlexiblePattern(value);
+  const match = pattern?.exec(content);
+
+  return match
+    ? { start: match.index, end: match.index + match[0].length }
+    : null;
+}
+
+function mapOriginalRangeToEdited(
+  original: string,
+  edited: string,
+  targetRange: { start: number; end: number },
+) {
+  let originalOffset = 0;
+  let editedOffset = 0;
+  let mappedStart: number | null = null;
+  let mappedEnd: number | null = null;
+
+  for (const part of diffWords(original, edited)) {
+    const partLength = part.value.length;
+
+    if (part.added) {
+      if (
+        originalOffset >= targetRange.start &&
+        originalOffset <= targetRange.end
+      ) {
+        mappedStart = Math.min(mappedStart ?? editedOffset, editedOffset);
+        mappedEnd = Math.max(
+          mappedEnd ?? editedOffset,
+          editedOffset + partLength,
+        );
+      }
+
+      editedOffset += partLength;
+      continue;
+    }
+
+    const overlapStart = Math.max(originalOffset, targetRange.start);
+    const overlapEnd = Math.min(originalOffset + partLength, targetRange.end);
+
+    if (part.removed) {
+      if (overlapStart < overlapEnd) {
+        mappedStart = Math.min(mappedStart ?? editedOffset, editedOffset);
+        mappedEnd = Math.max(mappedEnd ?? editedOffset, editedOffset);
+      }
+
+      originalOffset += partLength;
+      continue;
+    }
+
+    if (overlapStart < overlapEnd) {
+      const start = editedOffset + overlapStart - originalOffset;
+      const end = editedOffset + overlapEnd - originalOffset;
+      mappedStart = Math.min(mappedStart ?? start, start);
+      mappedEnd = Math.max(mappedEnd ?? end, end);
+    }
+
+    originalOffset += partLength;
+    editedOffset += partLength;
+  }
+
+  return mappedStart === null || mappedEnd === null
+    ? null
+    : { start: mappedStart, end: mappedEnd };
+}
+
+function replaceDetectedFragment(
+  original: string,
+  edited: string,
+  fragment: string,
+  replacement: string,
+): string | null {
+  const directReplacement = replaceFlexibleText(edited, fragment, replacement);
+
+  if (directReplacement !== null) {
+    return directReplacement;
+  }
+
+  const originalRange = findFlexibleRange(original, fragment);
+  const editedRange = originalRange
+    ? mapOriginalRangeToEdited(original, edited, originalRange)
+    : null;
+
+  if (!editedRange) {
+    return null;
+  }
+
+  const updatedContent =
+    edited.slice(0, editedRange.start) +
+    replacement +
+    edited.slice(editedRange.end);
+
+  return updatedContent === edited ? null : updatedContent;
+}
+
+function containsFlexibleText(content: string, value: string): boolean {
+  const pattern = createFlexiblePattern(value);
+  return pattern ? new RegExp(pattern.source).test(content) : false;
+}
+
+function renderOriginalHighlights(
   content: string,
-  suggestions: Suggestion[],
-): ReactNode[] {
+  barriers: Barrier[],
+): React.ReactNode[] {
   const matches: {
     start: number;
     end: number;
     text: string;
-    category: Category;
-    status: SuggestionStatus;
+    severity: Barrier["severity"];
   }[] = [];
 
-  for (const suggestion of suggestions) {
-    if (suggestion.status === "dismissed") {
+  for (const barrier of barriers) {
+    if (barrier.status === "Ignorada") {
       continue;
     }
 
-    const target =
-      suggestion.status === "applied"
-        ? suggestion.replacement
-        : suggestion.original;
+    const pattern = createFlexiblePattern(barrier.detectedFragment);
 
-    if (!target.trim()) {
+    if (!pattern) {
       continue;
     }
 
-    const pattern = createFlexiblePattern(target);
     let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(content)) !== null) {
@@ -177,61 +199,42 @@ function renderHighlightedContent(
         start: match.index,
         end: match.index + match[0].length,
         text: match[0],
-        category: suggestion.category,
-        status: suggestion.status,
+        severity: barrier.severity,
       });
-
-      if (match[0].length === 0) {
-        pattern.lastIndex++;
-      }
     }
   }
 
-  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+  matches.sort(
+    (first, second) => first.start - second.start || second.end - first.end,
+  );
 
-  const nonOverlappingMatches: typeof matches = [];
-  let lastEnd = 0;
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
 
   for (const match of matches) {
-    if (match.start < lastEnd) {
+    if (match.start < cursor) {
       continue;
     }
 
-    nonOverlappingMatches.push(match);
-    lastEnd = match.end;
-  }
-
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-
-  for (const match of nonOverlappingMatches) {
     if (match.start > cursor) {
       nodes.push(content.slice(cursor, match.start));
     }
 
-    const highlightClass =
-      match.status === "applied"
-        ? "bg-emerald-200 text-emerald-950"
-        : match.category === "claridad"
-          ? "bg-red-100 text-red-950"
-          : match.category === "organizacion"
-            ? "bg-amber-100 text-amber-950"
-            : "bg-emerald-100 text-emerald-950";
+    const tone =
+      match.severity === "Alta"
+        ? "bg-red-100 text-red-950"
+        : match.severity === "Media"
+          ? "bg-amber-100 text-amber-950"
+          : "bg-emerald-100 text-emerald-950";
 
     nodes.push(
       <mark
         key={`${match.start}-${match.end}`}
-        className={`rounded px-0.5 ${highlightClass}`}
-        title={
-          match.status === "applied"
-            ? "Adaptación aplicada"
-            : `Para revisar: ${CATEGORY_LABELS[match.category]}`
-        }
+        className={`rounded-sm px-0.5 ${tone}`}
       >
         {match.text}
       </mark>,
     );
-
     cursor = match.end;
   }
 
@@ -242,682 +245,657 @@ function renderHighlightedContent(
   return nodes;
 }
 
+function renderEditedDiff(original: string, edited: string): React.ReactNode[] {
+  return diffWords(original, edited).flatMap((part, index) => {
+    if (part.removed) {
+      return [];
+    }
+
+    if (part.added) {
+      return [
+        <mark
+          key={`${index}-${part.value.length}`}
+          className="rounded-sm bg-blue-100 px-0.5 text-blue-950"
+        >
+          {part.value}
+        </mark>,
+      ];
+    }
+
+    return [<span key={`${index}-${part.value.length}`}>{part.value}</span>];
+  });
+}
+
+function getPdfFileName(documentName: string): string {
+  const nameWithoutExtension = documentName.replace(/\.pdf$/i, "");
+  return `${nameWithoutExtension}_editado.pdf`;
+}
+
 export default function EditarDocumentoPage() {
-  const [originalContent] = useState(INITIAL_CONTENT);
-  const [content, setContent] = useState(INITIAL_CONTENT);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>(
-    () => cloneSuggestions(INITIAL_SUGGESTIONS),
+  const { id } = useParams<{ id: string }>();
+  const document = useLumiStore((state) =>
+    state.documents.find((item) => item.id === id),
   );
+  const diagnostic = useLumiStore((state) =>
+    state.diagnostics.find((item) => item.documentId === id),
+  );
+  const setActiveDocument = useLumiStore((state) => state.setActiveDocument);
+  const saveDocumentEdits = useLumiStore((state) => state.saveDocumentEdits);
 
-  const [activeTab, setActiveTab] = useState<Tab>("documento");
-  const [notice, setNotice] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editedProposal, setEditedProposal] = useState("");
+  useEffect(() => {
+    setActiveDocument(id);
+  }, [id, setActiveDocument]);
 
+  if (!document) {
+    return (
+      <main className="grid min-h-[calc(100svh-5rem)] place-items-center bg-slate-50 px-4 text-slate-900">
+        <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-8 text-center">
+          <FileText
+            aria-hidden="true"
+            className="mx-auto size-10 text-slate-500"
+          />
+          <h1 className="mt-4 text-xl font-bold">
+            No encontramos este documento
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Revisá el enlace o volvé a tus archivos para elegir otro material.
+          </p>
+          <Link
+            href="/archivos"
+            className="mt-6 inline-flex min-h-10 items-center justify-center rounded-md bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800"
+          >
+            Volver a mis archivos
+          </Link>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <EditorWorkspace
+      key={document.id}
+      document={document}
+      initialBarriers={diagnostic?.barriers ?? []}
+      saveDocumentEdits={saveDocumentEdits}
+    />
+  );
+}
+
+function EditorWorkspace({
+  document,
+  initialBarriers,
+  saveDocumentEdits,
+}: {
+  document: LumiDocument;
+  initialBarriers: Barrier[];
+  saveDocumentEdits: (
+    id: string,
+    modifiedContent: string,
+    barriers: Barrier[],
+  ) => void;
+}) {
+  const [editedContent, setEditedContent] = useState(document.modifiedContent);
+  const [barriers, setBarriers] = useState(() =>
+    cloneBarriers(initialBarriers),
+  );
+  const [savedContent, setSavedContent] = useState(document.modifiedContent);
+  const [savedBarriers, setSavedBarriers] = useState(() =>
+    cloneBarriers(initialBarriers),
+  );
   const [undoStack, setUndoStack] = useState<EditorSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<EditorSnapshot[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [originalZoom, setOriginalZoom] = useState(100);
+  const [editedZoom, setEditedZoom] = useState(100);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [textDraft, setTextDraft] = useState(editedContent);
+  const [notice, setNotice] = useState("");
 
-  function saveSnapshot(): void {
+  const originalPages = paginateDocumentText(document.originalContent);
+  const editedPages = paginateDocumentText(editedContent);
+  const pageCount = Math.max(originalPages.length, editedPages.length);
+  const activePage = Math.min(currentPage, pageCount);
+  const originalPage = originalPages[activePage - 1] ?? "";
+  const editedPage = editedPages[activePage - 1] ?? "";
+  const visibleBarriers = barriers.filter(
+    (barrier) => barrier.status !== "Ignorada",
+  );
+  const isDirty =
+    editedContent !== savedContent ||
+    JSON.stringify(barriers) !== JSON.stringify(savedBarriers);
+
+  function saveSnapshot() {
     setUndoStack((previous) => [
       ...previous,
-      {
-        content,
-        suggestions: cloneSuggestions(suggestions),
-      },
+      { content: editedContent, barriers: cloneBarriers(barriers) },
     ]);
-
     setRedoStack([]);
   }
 
-  function updateSuggestionStatus(
-    id: number,
-    status: SuggestionStatus,
-  ): void {
-    setSuggestions((previous) =>
-      previous.map((suggestion) =>
-        suggestion.id === id
-          ? { ...suggestion, status }
-          : suggestion,
+  function handleApply(barrier: Barrier, acceptedSuggestion: string) {
+    if (barrier.status === "Aplicada") {
+      return;
+    }
+
+    const nextContent = replaceDetectedFragment(
+      document.originalContent,
+      editedContent,
+      barrier.detectedFragment,
+      acceptedSuggestion,
+    );
+    const alreadyPresent = containsFlexibleText(
+      editedContent,
+      acceptedSuggestion,
+    );
+
+    if (nextContent === null && !alreadyPresent) {
+      setNotice(
+        `No se encontró el fragmento detectado en ${document.name}. No se aplicaron cambios.`,
+      );
+      return;
+    }
+
+    saveSnapshot();
+
+    if (nextContent !== null) {
+      setEditedContent(nextContent);
+    }
+
+    setBarriers((previous) =>
+      previous.map((item) =>
+        item.id === barrier.id
+          ? { ...item, suggestion: acceptedSuggestion, status: "Aplicada" }
+          : item,
       ),
     );
+    setNotice("Se aplicó la sugerencia al documento en edición.");
   }
 
-  function handleApply(suggestion: Suggestion): void {
-    setNotice("");
-
-    if (suggestion.status === "applied") {
-      setNotice("Esta propuesta ya fue aplicada.");
+  function handleDismiss(barrier: Barrier) {
+    if (barrier.status !== "Pendiente") {
       return;
     }
 
-    /*
-     * Primero se intenta reemplazar el texto original.
-     * Si no aparece, se comprueba si la propuesta ya está en el documento.
-     * Esto evita que la aplicación falle por espacios o saltos de línea.
-     */
-    const updatedContent = replaceFlexibleText(
-      content,
-      suggestion.original,
-      suggestion.replacement,
+    saveSnapshot();
+    setBarriers((previous) =>
+      previous.map((item) =>
+        item.id === barrier.id ? { ...item, status: "Ignorada" } : item,
+      ),
     );
+    setNotice("Se descartó la sugerencia.");
+  }
 
-    if (updatedContent === null) {
-      const replacementAlreadyExists = new RegExp(
-        createFlexiblePattern(suggestion.replacement).source,
-      ).test(content);
-
-      if (replacementAlreadyExists) {
-        saveSnapshot();
-        updateSuggestionStatus(suggestion.id, "applied");
-        setNotice("La propuesta ya estaba en el documento y quedó marcada como aplicada.");
-        return;
-      }
-
-      setNotice(
-        "No se encontró el texto original ni la propuesta en el documento. Revisá el contenido antes de aplicar este cambio.",
-      );
-      return;
+  function handleTextDraftSave() {
+    if (textDraft !== editedContent) {
+      saveSnapshot();
+      setEditedContent(textDraft);
     }
 
-    saveSnapshot();
-    setContent(updatedContent);
-    updateSuggestionStatus(suggestion.id, "applied");
-    setNotice(`Se aplicó la propuesta: ${suggestion.title}.`);
+    setIsTextEditorOpen(false);
+    setNotice("Se actualizó el documento en edición.");
   }
 
-  function handleDismiss(suggestion: Suggestion): void {
-    saveSnapshot();
-    updateSuggestionStatus(suggestion.id, "dismissed");
-    setNotice(`Se descartó la propuesta: ${suggestion.title}.`);
-  }
+  function handleUndo() {
+    const previousSnapshot = undoStack.at(-1);
 
-  function handleStartEditing(suggestion: Suggestion): void {
-    setEditingId(suggestion.id);
-    setEditedProposal(suggestion.replacement);
-    setNotice("");
-  }
-
-  function handleCancelEditing(): void {
-    setEditingId(null);
-    setEditedProposal("");
-  }
-function handleSaveProposal(suggestion: Suggestion): void {
-  const trimmedProposal = editedProposal.trim();
-
-  if (!trimmedProposal) {
-    setNotice("La propuesta no puede quedar vacía.");
-    return;
-  }
-
-  if (trimmedProposal === suggestion.replacement) {
-    setEditingId(null);
-    setEditedProposal("");
-    setNotice("No se realizaron cambios en la propuesta.");
-    return;
-  }
-
-  if (suggestion.status === "applied") {
-    const updatedContent = replaceFlexibleText(
-      content,
-      suggestion.replacement,
-      trimmedProposal,
-    );
-
-    if (updatedContent === null) {
-      setNotice(
-        "No se encontró la propuesta aplicada en el documento. No se guardaron los cambios.",
-      );
+    if (!previousSnapshot) {
       return;
     }
-
-    saveSnapshot();
-    setContent(updatedContent);
-  } else {
-    saveSnapshot();
-  }
-
-  setSuggestions((previous) =>
-    previous.map((item) =>
-      item.id === suggestion.id
-        ? { ...item, replacement: trimmedProposal }
-        : item,
-    ),
-  );
-
-  setEditingId(null);
-  setEditedProposal("");
-
-  setNotice(
-    suggestion.status === "applied"
-      ? "La propuesta y el documento se actualizaron correctamente."
-      : "La propuesta se actualizó. Podés revisarla antes de aplicarla.",
-  );
-}
-  
-  function handleUndo(): void {
-    if (undoStack.length === 0) {
-      setNotice("No hay cambios para deshacer.");
-      return;
-    }
-
-    const previousSnapshot = undoStack[undoStack.length - 1];
 
     setRedoStack((previous) => [
       ...previous,
-      {
-        content,
-        suggestions: cloneSuggestions(suggestions),
-      },
+      { content: editedContent, barriers: cloneBarriers(barriers) },
     ]);
-
-    setContent(previousSnapshot.content);
-    setSuggestions(cloneSuggestions(previousSnapshot.suggestions));
+    setEditedContent(previousSnapshot.content);
+    setBarriers(cloneBarriers(previousSnapshot.barriers));
     setUndoStack((previous) => previous.slice(0, -1));
     setNotice("Se deshizo el último cambio.");
   }
 
-  function handleRedo(): void {
-    if (redoStack.length === 0) {
-      setNotice("No hay cambios para rehacer.");
+  function handleRedo() {
+    const nextSnapshot = redoStack.at(-1);
+
+    if (!nextSnapshot) {
       return;
     }
 
-    const nextSnapshot = redoStack[redoStack.length - 1];
-
     setUndoStack((previous) => [
       ...previous,
-      {
-        content,
-        suggestions: cloneSuggestions(suggestions),
-      },
+      { content: editedContent, barriers: cloneBarriers(barriers) },
     ]);
-
-    setContent(nextSnapshot.content);
-    setSuggestions(cloneSuggestions(nextSnapshot.suggestions));
+    setEditedContent(nextSnapshot.content);
+    setBarriers(cloneBarriers(nextSnapshot.barriers));
     setRedoStack((previous) => previous.slice(0, -1));
     setNotice("Se rehizo el cambio.");
   }
 
-  function handleRestoreOriginal(): void {
-    if (
-      content === originalContent &&
-      suggestions.every(
-        (suggestion, index) =>
-          suggestion.status === INITIAL_SUGGESTIONS[index].status &&
-          suggestion.replacement === INITIAL_SUGGESTIONS[index].replacement,
-      )
-    ) {
-      setNotice("El documento ya está en su estado original.");
-      return;
-    }
-
-    saveSnapshot();
-    setContent(originalContent);
-    setSuggestions(cloneSuggestions(INITIAL_SUGGESTIONS));
-    setEditingId(null);
-    setEditedProposal("");
-    setNotice("Se restauró el documento original.");
+  function handleSaveChanges() {
+    saveDocumentEdits(document.id, editedContent, cloneBarriers(barriers));
+    setSavedContent(editedContent);
+    setSavedBarriers(cloneBarriers(barriers));
+    setNotice("Se guardaron los cambios en esta sesión.");
   }
 
-  const pendingCount = suggestions.filter(
-    (suggestion) => suggestion.status === "pending",
-  ).length;
+  function handleDownloadPdf() {
+    downloadDocumentPdf(editedContent, getPdfFileName(document.name));
+    setIsExportModalOpen(false);
+    setNotice("Se generó el PDF del documento editado.");
+  }
 
-  const appliedCount = suggestions.filter(
-    (suggestion) => suggestion.status === "applied",
-  ).length;
+  function handleOpenTextEditor() {
+    setTextDraft(editedContent);
+    setIsTextEditorOpen(true);
+  }
 
-  const dismissedCount = suggestions.filter(
-    (suggestion) => suggestion.status === "dismissed",
-  ).length;
+  const canGoToPreviousPage = activePage > 1;
+  const canGoToNextPage = activePage < pageCount;
+  const documentStatus = isDirty ? "Sin guardar" : document.status;
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="flex min-h-[calc(100svh-5rem)] flex-col bg-slate-100 pb-14 text-slate-900 lg:h-[calc(100svh-5rem)] lg:min-h-0">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => window.history.back()}
-              className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"
-              aria-label="Volver"
-              title="Volver"
+        <div className="mx-auto grid w-full max-w-[1900px] gap-3 px-3 py-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <Link
+              href="/archivos"
+              aria-label="Volver a mis archivos"
+              className="grid size-9 shrink-0 place-items-center rounded-md text-slate-600 transition hover:bg-slate-100"
             >
-              <ArrowLeft size={20} />
-            </button>
-
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-              <FileText size={22} />
+              <ArrowLeft aria-hidden="true" className="size-4" />
+            </Link>
+            <div className="grid size-10 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-700">
+              <FileText aria-hidden="true" className="size-5" />
             </div>
-
-            <div>
-              <h1 className="text-lg font-bold sm:text-xl">
-                Editar documento
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold sm:text-base">
+                {document.name}
               </h1>
-              <p className="text-xs text-slate-500 sm:text-sm">
-                Revisión de accesibilidad · Documento de demostración
+              <p className="truncate text-xs text-slate-500">
+                {document.size} <span aria-hidden="true">·</span> Última
+                modificación: {document.date}
               </p>
             </div>
+            <Badge
+              variant={documentStatus}
+              className="hidden shrink-0 sm:inline-flex"
+            />
           </div>
 
-          <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 sm:text-sm">
-            <CircleAlert size={16} />
-            Edición temporal
+          <nav
+            aria-label="Paginación del documento"
+            className="justify-self-center"
+          >
+            <ol className="flex items-center gap-1">
+              <li>
+                <Button
+                  variant="ghost"
+                  aria-label="Página anterior"
+                  title="Página anterior"
+                  disabled={!canGoToPreviousPage}
+                  onClick={() => setCurrentPage(Math.max(1, activePage - 1))}
+                  className="size-8 p-0"
+                >
+                  <ChevronLeft aria-hidden="true" className="size-4" />
+                </Button>
+              </li>
+              <li
+                aria-current="page"
+                className="min-w-16 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-center text-xs font-semibold tabular-nums text-slate-700"
+              >
+                {activePage} / {pageCount}
+              </li>
+              <li>
+                <Button
+                  variant="ghost"
+                  aria-label="Página siguiente"
+                  title="Página siguiente"
+                  disabled={!canGoToNextPage}
+                  onClick={() =>
+                    setCurrentPage(Math.min(pageCount, activePage + 1))
+                  }
+                  className="size-8 p-0"
+                >
+                  <ChevronRight aria-hidden="true" className="size-4" />
+                </Button>
+              </li>
+            </ol>
+          </nav>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={handleDownloadPdf}
+              className="min-h-9 px-3 py-2 text-xs sm:text-sm"
+            >
+              <Download aria-hidden="true" className="size-4" />
+              Descargar PDF
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSaveChanges}
+              disabled={!isDirty}
+              className="min-h-9 px-3 py-2 text-xs sm:text-sm"
+            >
+              <Save aria-hidden="true" className="size-4" />
+              Guardar cambios
+            </Button>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6">
-        <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
-          <div className="flex items-start gap-3">
-            <Lightbulb className="mt-0.5 shrink-0 text-blue-700" size={20} />
-            <div>
-              <p className="font-semibold">Revisá cada adaptación antes de aplicarla</p>
-              <p className="mt-1">
-                Las sugerencias son demostrativas. La conexión con un servicio
-                de inteligencia artificial y el guardado en el servidor no
-                están implementados en esta pantalla. Vos decidís qué cambios
-                aceptar.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div
-            className="inline-flex rounded-xl border border-slate-200 bg-white p-1"
-            role="tablist"
-            aria-label="Vistas del editor"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "documento"}
-              onClick={() => setActiveTab("documento")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                activeTab === "documento"
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              Vista de documento
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "cambios"}
-              onClick={() => setActiveTab("cambios")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                activeTab === "cambios"
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              Vista de cambios
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2 text-xs sm:text-sm">
-            <span className="rounded-full bg-amber-100 px-3 py-1.5 font-medium text-amber-800">
-              {pendingCount} pendientes
-            </span>
-            <span className="rounded-full bg-emerald-100 px-3 py-1.5 font-medium text-emerald-800">
-              {appliedCount} aplicadas
-            </span>
-            <span className="rounded-full bg-slate-200 px-3 py-1.5 font-medium text-slate-700">
-              {dismissedCount} descartadas
-            </span>
-          </div>
-        </div>
-
-        {notice && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="mb-5 flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700"
-          >
-            <CheckCircle2
-              className="mt-0.5 shrink-0 text-emerald-600"
-              size={19}
-            />
-            <p className="flex-1">{notice}</p>
-            <button
-              type="button"
-              onClick={() => setNotice("")}
-              className="rounded p-1 text-slate-500 hover:bg-slate-100"
-              aria-label="Cerrar aviso"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="font-semibold">
-                  {activeTab === "documento"
-                    ? "Documento de trabajo"
-                    : "Resumen de cambios"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {activeTab === "documento"
-                    ? "Los fragmentos resaltados corresponden a las sugerencias."
-                    : "Consultá qué propuestas fueron aceptadas o descartadas."}
-                </p>
-              </div>
-
-              {activeTab === "documento" && (
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-sm bg-red-200" />
-                    Claridad
+      <div className="mx-auto flex min-h-0 w-full max-w-[1900px] flex-1 flex-col p-2 sm:p-3">
+        <div className="grid min-h-[70svh] flex-1 grid-cols-1 gap-3 lg:h-[calc(100svh-16rem)] lg:min-h-120 lg:grid-cols-[minmax(18rem,0.33fr)_minmax(0,0.67fr)]">
+          <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+            <header className="border-b border-slate-200 p-3 sm:p-4">
+              <div className="flex items-start gap-2.5 rounded-md bg-red-50 p-3">
+                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-red-600 text-white">
+                  <span aria-hidden="true" className="text-sm font-bold">
+                    !
                   </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-sm bg-amber-200" />
-                    Organización
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-sm bg-emerald-200" />
-                    Estructura
-                  </span>
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-red-900">
+                    Se detectaron {barriers.length} errores que requieren
+                    revisión
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Revisá cada sugerencia y decidí si querés aplicarla al
+                    documento.
+                  </p>
                 </div>
+              </div>
+              <div
+                className="mt-3 flex flex-wrap gap-2"
+                aria-label="Resumen por severidad"
+              >
+                {(["Alta", "Media", "Baja"] as const).map((severity) => {
+                  const count = barriers.filter(
+                    (barrier) => barrier.severity === severity,
+                  ).length;
+
+                  return (
+                    <Badge key={severity} variant={severity}>
+                      {count} {severity.toLowerCase()}
+                      {count === 1 ? "" : "s"}
+                    </Badge>
+                  );
+                })}
+              </div>
+              {notice && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs leading-5 text-blue-900"
+                >
+                  {notice}
+                </p>
+              )}
+            </header>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+              {visibleBarriers.length > 0 ? (
+                visibleBarriers.map((barrier) => (
+                  <SuggestionCard
+                    key={barrier.id}
+                    barrier={barrier}
+                    onApply={handleApply}
+                    onDismiss={handleDismiss}
+                  />
+                ))
+              ) : (
+                <p className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                  No hay sugerencias pendientes para este documento.
+                </p>
               )}
             </div>
+          </aside>
 
-            {activeTab === "documento" ? (
-              <article className="min-h-[420px] p-5 sm:p-8">
-                <div className="mx-auto max-w-3xl">
-                  <div className="mb-5 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-400">
-                    <FileText size={15} />
-                    Vista previa del contenido
-                  </div>
+          <section
+            aria-label="Comparación de documentos"
+            className="grid min-h-0 min-w-0 grid-cols-1 gap-2 lg:grid-cols-2"
+          >
+            <DocumentPanel
+              title="Documento original"
+              zoom={originalZoom}
+              onZoomChange={setOriginalZoom}
+            >
+              {renderOriginalHighlights(originalPage, barriers)}
+            </DocumentPanel>
 
-                  <div className="whitespace-pre-wrap break-words text-base leading-8 text-slate-800">
-                    {renderHighlightedContent(content, suggestions)}
-                  </div>
-                </div>
-              </article>
-            ) : (
-              <div className="min-h-[420px] p-5 sm:p-8">
-                <div className="space-y-4">
-                  {suggestions.map((suggestion) => (
-                    <div
-                      key={suggestion.id}
-                      className="rounded-xl border border-slate-200 p-4"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold">{suggestion.title}</h3>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {CATEGORY_LABELS[suggestion.category]}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            suggestion.status === "applied"
-                              ? "bg-emerald-100 text-emerald-800"
-                              : suggestion.status === "dismissed"
-                                ? "bg-slate-200 text-slate-700"
-                                : "bg-amber-100 text-amber-800"
-                          }`}
-                        >
-                          {suggestion.status === "applied"
-                            ? "Aplicada"
-                            : suggestion.status === "dismissed"
-                              ? "Descartada"
-                              : "Pendiente"}
-                        </span>
-                      </div>
-
-                      <p className="mt-3 text-sm leading-6 text-slate-600">
-                        {suggestion.explanation}
-                      </p>
-
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <div className="rounded-lg bg-slate-50 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Texto original
-                          </p>
-                          <p className="whitespace-pre-wrap text-sm leading-6">
-                            {suggestion.original}
-                          </p>
-                        </div>
-
-                        <div className="rounded-lg bg-emerald-50 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                            Propuesta
-                          </p>
-                          <p className="whitespace-pre-wrap text-sm leading-6 text-emerald-950">
-                            {suggestion.replacement}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-                  <Sparkles size={19} />
-                </div>
-                <div>
-                  <h2 className="font-semibold">Sugerencias de la IA</h2>
-                  <p className="text-xs text-slate-500">
-                    Propuestas de demostración
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4 p-4">
-              {suggestions.map((suggestion) => (
-                <article
-                  key={suggestion.id}
-                  className={`rounded-xl border p-4 ${
-                    suggestion.status === "applied"
-                      ? "border-emerald-200 bg-emerald-50/50"
-                      : suggestion.status === "dismissed"
-                        ? "border-slate-200 bg-slate-50 opacity-80"
-                        : "border-slate-200 bg-white"
-                  }`}
+            <DocumentPanel
+              title="Documento en edición"
+              zoom={editedZoom}
+              onZoomChange={setEditedZoom}
+              action={
+                <Button
+                  variant="ghost"
+                  onClick={handleOpenTextEditor}
+                  className="size-8 p-0 text-blue-700"
+                  aria-label="Editar texto del documento"
+                  title="Editar texto"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-sm font-semibold leading-5">
-                      {suggestion.title}
-                    </h3>
+                  <Pencil aria-hidden="true" className="size-4" />
+                </Button>
+              }
+            >
+              {renderEditedDiff(originalPage, editedPage)}
+            </DocumentPanel>
+          </section>
+        </div>
+      </div>
 
-                    {suggestion.status === "applied" ? (
-                      <CheckCircle2
-                        size={19}
-                        className="shrink-0 text-emerald-600"
-                      />
-                    ) : suggestion.status === "dismissed" ? (
-                      <X
-                        size={18}
-                        className="shrink-0 text-slate-400"
-                      />
-                    ) : (
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold ${CATEGORY_STYLES[suggestion.category]}`}
-                      >
-                        {CATEGORY_LABELS[suggestion.category]}
-                      </span>
-                    )}
-                  </div>
+      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
+        <div className="mx-auto flex w-full max-w-[1900px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-5">
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              variant="ghost"
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              className="min-h-9 px-2.5 text-xs sm:text-sm"
+            >
+              <Undo2 aria-hidden="true" className="size-4" />
+              Deshacer
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              className="min-h-9 px-2.5 text-xs sm:text-sm"
+            >
+              <Redo2 aria-hidden="true" className="size-4" />
+              Rehacer
+            </Button>
+            <span className="mx-1 hidden h-6 border-l border-slate-200 sm:block" />
+            <Button
+              variant="outline"
+              onClick={() => setIsPreviewOpen(true)}
+              className="min-h-9 px-2.5 text-xs sm:text-sm"
+            >
+              <Eye aria-hidden="true" className="size-4" />
+              Vista previa
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline">
+              <Badge variant={documentStatus} />
+            </span>
+            <Button
+              variant="primary"
+              onClick={() => setIsExportModalOpen(true)}
+              className="min-h-9 px-4 py-2 text-xs sm:text-sm"
+            >
+              Finalizar
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </footer>
 
-                  <p className="mt-3 text-xs leading-5 text-slate-600">
-                    {suggestion.explanation}
+      <Dialog.Root open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/55" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-100 p-4 shadow-2xl focus:outline-none sm:p-6">
+            <header className="flex items-start justify-between gap-4">
+              <div>
+                <Dialog.Title className="text-lg font-bold">
+                  Vista previa
+                </Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-slate-600">
+                  {document.name} · {editedPages.length} páginas
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <Button
+                  variant="ghost"
+                  aria-label="Cerrar vista previa"
+                  className="size-9 shrink-0 p-0"
+                >
+                  <X aria-hidden="true" className="size-4" />
+                </Button>
+              </Dialog.Close>
+            </header>
+            <div className="mt-4 min-h-0 space-y-4 overflow-y-auto">
+              {editedPages.map((page, index) => (
+                <article
+                  key={`${index}-${page.length}`}
+                  className="mx-auto aspect-210/297 w-full max-w-170 overflow-y-auto bg-white p-5 shadow-sm sm:p-8"
+                >
+                  <p className="whitespace-pre-wrap wrap-break-word font-serif text-sm leading-6 text-slate-800">
+                    {page}
                   </p>
-
-                  {editingId === suggestion.id ? (
-                    <div className="mt-4 space-y-3">
-                      <label
-                        htmlFor={`proposal-${suggestion.id}`}
-                        className="block text-xs font-semibold text-slate-700"
-                      >
-                        Editar propuesta
-                      </label>
-
-                      <textarea
-                        id={`proposal-${suggestion.id}`}
-                        value={editedProposal}
-                        onChange={(event) =>
-                          setEditedProposal(event.target.value)
-                        }
-                        rows={6}
-                        className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleSaveProposal(suggestion)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                        >
-                          <Save size={14} />
-                          Guardar propuesta
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleCancelEditing}
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                        <p className="mb-2 text-xs font-semibold text-slate-500">
-                          Propuesta de adaptación
-                        </p>
-                        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                          {suggestion.replacement}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {suggestion.status !== "applied" && (
-                          <button
-                            type="button"
-                            onClick={() => handleApply(suggestion)}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-                          >
-                            <Check size={14} />
-                            Aplicar
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditing(suggestion)}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          <Pencil size={14} />
-                          Editar propuesta
-                        </button>
-
-                        {suggestion.status === "pending" && (
-                          <button
-                            type="button"
-                            onClick={() => handleDismiss(suggestion)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                          >
-                            <X size={14} />
-                            Descartar
-                          </button>
-                        )}
-
-                        {suggestion.status === "dismissed" && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateSuggestionStatus(
-                                suggestion.id,
-                                "pending",
-                              )
-                            }
-                            className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                          >
-                            Revisar de nuevo
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
+                  <p className="mt-4 text-right text-[10px] text-slate-400">
+                    {index + 1} / {editedPages.length}
+                  </p>
                 </article>
               ))}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
-              <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
-                <div className="flex items-start gap-2">
-                  <Lightbulb
-                    size={17}
-                    className="mt-0.5 shrink-0 text-violet-700"
-                  />
-                  <p className="text-xs leading-5 text-violet-950">
-                    Las propuestas son orientativas. Revisá cada adaptación y
-                    decidí si responde a las necesidades de tu material.
-                  </p>
-                </div>
+      <Dialog.Root open={isTextEditorOpen} onOpenChange={setIsTextEditorOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/55" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-2xl focus:outline-none sm:p-7">
+            <header className="flex items-start justify-between gap-4">
+              <div>
+                <Dialog.Title className="text-lg font-bold">
+                  Editar documento
+                </Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-slate-600">
+                  Los cambios se reflejan en el visor y se guardan al pulsar
+                  “Guardar cambios”.
+                </Dialog.Description>
               </div>
-            </div>
-          </aside>
-        </div>
-
-        <footer className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:px-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="font-semibold">Acciones del documento</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Los cambios se mantienen en esta pantalla mientras no la
-                recargues. Todavía no se guardan en el servidor.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={undoStack.length === 0}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              <Dialog.Close asChild>
+                <Button
+                  variant="ghost"
+                  aria-label="Cerrar editor de texto"
+                  className="size-9 shrink-0 p-0"
+                >
+                  <X aria-hidden="true" className="size-4" />
+                </Button>
+              </Dialog.Close>
+            </header>
+            <label htmlFor="document-content" className="sr-only">
+              Contenido del documento en edición
+            </label>
+            <textarea
+              id="document-content"
+              value={textDraft}
+              onChange={(event) => setTextDraft(event.currentTarget.value)}
+              className="mt-4 min-h-64 w-full flex-1 resize-y rounded-md border border-slate-300 p-3 font-serif text-sm leading-6 text-slate-800 outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 sm:min-h-96"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsTextEditorOpen(false)}
               >
-                <RotateCcw size={16} />
-                Deshacer
-              </button>
-
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={redoStack.length === 0}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <RotateCw size={16} />
-                Rehacer
-              </button>
-
-              <button
-                type="button"
-                onClick={handleRestoreOriginal}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                <History size={16} />
-                Volver al original
-              </button>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={handleTextDraftSave}>
+                <CheckCircle2 aria-hidden="true" className="size-4" />
+                Aplicar texto
+              </Button>
             </div>
-          </div>
-        </footer>
-      </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onDownloadPdf={handleDownloadPdf}
+        onSaveToApp={() => {
+          handleSaveChanges();
+          setIsExportModalOpen(false);
+        }}
+      />
     </main>
+  );
+}
+
+function DocumentPanel({
+  title,
+  zoom,
+  onZoomChange,
+  action,
+  children,
+}: {
+  title: string;
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex min-h-72 min-w-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white lg:min-h-0">
+      <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-2.5 sm:px-3">
+        <h2 className="truncate text-xs font-semibold text-slate-700 sm:text-sm">
+          {title}
+        </h2>
+        <div className="flex shrink-0 items-center gap-1">
+          {action}
+          <Button
+            variant="outline"
+            aria-label={`Alejar ${title.toLowerCase()}`}
+            title="Alejar"
+            disabled={zoom <= 70}
+            onClick={() => onZoomChange(Math.max(70, zoom - 10))}
+            className="size-7 p-0"
+          >
+            <Minus aria-hidden="true" className="size-3.5" />
+          </Button>
+          <span className="min-w-10 text-center text-[11px] font-medium tabular-nums text-slate-600">
+            {zoom}%
+          </span>
+          <Button
+            variant="outline"
+            aria-label={`Acercar ${title.toLowerCase()}`}
+            title="Acercar"
+            disabled={zoom >= 150}
+            onClick={() => onZoomChange(Math.min(150, zoom + 10))}
+            className="size-7 p-0"
+          >
+            <Plus aria-hidden="true" className="size-3.5" />
+          </Button>
+        </div>
+      </header>
+      <div className="min-h-0 flex-1 overflow-auto bg-slate-100/70 p-2 sm:p-3">
+        <article className="mx-auto aspect-210/297 w-full max-w-170 overflow-y-auto bg-white p-3 shadow-sm sm:p-5">
+          <p
+            className="whitespace-pre-wrap wrap-break-word font-serif text-slate-800"
+            style={{
+              fontSize: `${12 * (zoom / 100)}px`,
+              lineHeight: 1.55,
+            }}
+          >
+            {children}
+          </p>
+        </article>
+      </div>
+    </section>
   );
 }

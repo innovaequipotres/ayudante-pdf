@@ -58,7 +58,7 @@ export const mockDiagnostic: DiagnosticResult = {
       detectedFragment:
         "Para obtener el resultado correcto, deberá reemplazar los valores en la fórmula y realizar las operaciones en el orden indicado.",
       suggestion:
-        "Separá la consigna en pasos breves y usá verbos directos. Por ejemplo: «Reemplazá los valores en la fórmula. Después, resolvé las operaciones en el orden indicado».",
+        "Para obtener el resultado, reemplazá los valores en la fórmula y realizá las operaciones en el orden indicado.",
       status: "Pendiente",
     },
     {
@@ -66,17 +66,15 @@ export const mockDiagnostic: DiagnosticResult = {
       type: "Uso del lenguaje inclusivo",
       severity: "Media",
       detectedFragment: "El alumno deberá resolver los siguientes ejercicios.",
-      suggestion:
-        "Se sugiere reemplazar términos excluyentes por un lenguaje más inclusivo: «Cada estudiante puede resolver los siguientes ejercicios».",
+      suggestion: "Cada estudiante puede resolver los siguientes ejercicios.",
       status: "Pendiente",
     },
     {
       id: "barrera-jerarquia-titulos",
       type: "Falta de jerarquía en los títulos",
       severity: "Baja",
-      detectedFragment: "Práctica de funciones / Actividades",
-      suggestion:
-        "Organizá los títulos con niveles jerárquicos para distinguir el tema principal de sus secciones.",
+      detectedFragment: "Práctica de funciones",
+      suggestion: "# Práctica de funciones",
       status: "Aplicada",
     },
   ],

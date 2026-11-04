@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { mockDiagnostic, mockDocuments, mockUser } from "@/mocks/mockData";
-import type { DiagnosticResult, LumiDocument } from "@/types";
+import type { Barrier, DiagnosticResult, LumiDocument } from "@/types";
 
 interface LumiStore {
   user: typeof mockUser;
@@ -18,6 +18,11 @@ interface LumiStore {
     status: "Pendiente" | "Aplicada" | "Ignorada",
   ) => void;
   updateDocumentStatus: (id: string, newStatus: LumiDocument["status"]) => void;
+  saveDocumentEdits: (
+    id: string,
+    modifiedContent: string,
+    barriers: Barrier[],
+  ) => void;
 }
 
 const initialActiveDocument =
@@ -92,6 +97,40 @@ export const useLumiStore = create<LumiStore>((set) => ({
           state.activeDocument?.id === id
             ? (documents.find((document) => document.id === id) ?? null)
             : state.activeDocument,
+      };
+    }),
+
+  saveDocumentEdits: (id, modifiedContent, barriers) =>
+    set((state) => {
+      const documentExists = state.documents.some(
+        (document) => document.id === id,
+      );
+
+      if (!documentExists) {
+        return state;
+      }
+
+      const documents = state.documents.map((document) =>
+        document.id === id
+          ? { ...document, modifiedContent, status: "En edición" as const }
+          : document,
+      );
+      const diagnostics = state.diagnostics.map((diagnostic) =>
+        diagnostic.documentId === id ? { ...diagnostic, barriers } : diagnostic,
+      );
+
+      return {
+        documents,
+        diagnostics,
+        activeDocument:
+          state.activeDocument?.id === id
+            ? (documents.find((document) => document.id === id) ?? null)
+            : state.activeDocument,
+        activeDiagnostic:
+          state.activeDiagnostic?.documentId === id
+            ? (diagnostics.find((diagnostic) => diagnostic.documentId === id) ??
+              null)
+            : state.activeDiagnostic,
       };
     }),
 }));
