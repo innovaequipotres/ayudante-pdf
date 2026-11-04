@@ -55,7 +55,7 @@ export default function InicioPage() {
     router.push("/analizando");
     window.setTimeout(() => {
       setDemoDocument(file.name);
-      router.push(`/editar/${demo.id}`);
+      router.push(`/diagnostico/${demo.id}`);
     }, 3000);
   };
 
