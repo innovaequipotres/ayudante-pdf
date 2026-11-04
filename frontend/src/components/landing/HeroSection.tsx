@@ -33,7 +33,7 @@ export default function HeroSection() {
         aria-hidden="true"
         className="absolute -right-16 -top-24 size-88 rounded-full border border-emerald-300/15"
       />
-      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-5 py-16 sm:px-8 sm:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:py-24">
+      <div className="relative mx-auto grid w-full max-w-7xl items-center gap-14 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:py-24">
         <div className="max-w-2xl">
           <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-2 text-sm font-semibold text-blue-100">
             <Sparkles aria-hidden="true" className="size-4 text-emerald-300" />
@@ -127,7 +127,7 @@ export default function HeroSection() {
           </div>
           {previewMode === "documento" ? (
             <div
-              className="grid min-h-64 grid-cols-[1fr_0.72fr] gap-3 p-2 sm:min-h-72 sm:gap-4 sm:p-3"
+              className="grid min-h-64 grid-cols-1 gap-3 p-2 sm:min-h-72 sm:grid-cols-[1fr_0.72fr] sm:gap-4 sm:p-3"
               aria-live="polite"
             >
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5">

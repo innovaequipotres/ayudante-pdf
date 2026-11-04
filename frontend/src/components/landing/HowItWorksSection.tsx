@@ -43,9 +43,9 @@ export default function HowItWorksSection() {
   return (
     <section
       id="como-funciona"
-      className="scroll-mt-24 bg-white px-5 py-20 sm:px-8 lg:py-24"
+      className="scroll-mt-24 bg-white py-20 lg:py-24"
     >
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <div className="mx-auto max-w-2xl text-center">
           <p className="text-sm font-bold uppercase text-blue-700">
             Un camino simple

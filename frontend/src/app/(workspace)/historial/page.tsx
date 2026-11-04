@@ -101,13 +101,11 @@ export default function HistorialPage() {
   }, [activeFilter, historyDocuments, search]);
 
   return (
-    <main className="min-h-svh bg-[#f7fafc] px-4 py-8 text-slate-900 sm:px-8 sm:py-10">
-      <div className="mx-auto max-w-5xl">
+    <main className="min-h-svh bg-[#f7fafc] py-8 text-slate-900 sm:py-10">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <header>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-            Historial de documentos
-          </h1>
-          <p className="mt-2 text-sm text-slate-600 sm:text-base">
+          <h1 className="page-title">Historial de documentos</h1>
+          <p className="page-subtitle mt-2">
             Los materiales que analizaste. El original se conserva siempre.
           </p>
         </header>

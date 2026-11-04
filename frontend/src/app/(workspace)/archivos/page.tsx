@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo, useState, type ChangeEvent } from "react";
@@ -89,7 +88,7 @@ export default function MisArchivosPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<number[]>(
-    INITIAL_GROUPS.map((group) => group.id)
+    INITIAL_GROUPS.map((group) => group.id),
   );
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
@@ -103,7 +102,7 @@ export default function MisArchivosPage() {
         color: group.color,
         status: "Disponible",
         date: "Sin fecha",
-      }))
+      })),
     );
   }, [groups]);
 
@@ -116,7 +115,7 @@ export default function MisArchivosPage() {
           !normalizedSearch ||
           group.name.toLowerCase().includes(normalizedSearch) ||
           group.files.some((file) =>
-            file.toLowerCase().includes(normalizedSearch)
+            file.toLowerCase().includes(normalizedSearch),
           );
 
         const matchesFilter =
@@ -129,7 +128,7 @@ export default function MisArchivosPage() {
       .sort((a, b) =>
         sort === "nombre-desc"
           ? b.name.localeCompare(a.name, "es")
-          : a.name.localeCompare(b.name, "es")
+          : a.name.localeCompare(b.name, "es"),
       );
   }, [groups, search, filter, sort]);
 
@@ -150,7 +149,7 @@ export default function MisArchivosPage() {
       .sort((a, b) =>
         sort === "nombre-desc"
           ? b.name.localeCompare(a.name, "es")
-          : a.name.localeCompare(b.name, "es")
+          : a.name.localeCompare(b.name, "es"),
       );
   }, [documents, visibleGroups, search, sort]);
 
@@ -158,7 +157,7 @@ export default function MisArchivosPage() {
     setExpandedGroups((current) =>
       current.includes(groupId)
         ? current.filter((id) => id !== groupId)
-        : [...current, groupId]
+        : [...current, groupId],
     );
   };
 
@@ -166,7 +165,7 @@ export default function MisArchivosPage() {
     setSelectedFiles((current) =>
       current.includes(fileId)
         ? current.filter((id) => id !== fileId)
-        : [...current, fileId]
+        : [...current, fileId],
     );
   };
 
@@ -179,15 +178,14 @@ export default function MisArchivosPage() {
     setSelectedFiles((current) =>
       allSelected
         ? current.filter((id) => !visibleIds.includes(id))
-        : [...new Set([...current, ...visibleIds])]
+        : [...new Set([...current, ...visibleIds])],
     );
   };
 
   const handleCreateGroup = (newGroup: NewGroup) => {
     const exists = groups.some(
       (group) =>
-        group.name.trim().toLowerCase() ===
-        newGroup.name.trim().toLowerCase()
+        group.name.trim().toLowerCase() === newGroup.name.trim().toLowerCase(),
     );
 
     if (exists) {
@@ -216,20 +214,15 @@ export default function MisArchivosPage() {
 
   const allVisibleSelected =
     visibleDocuments.length > 0 &&
-    visibleDocuments.every((document) =>
-      selectedFiles.includes(document.id)
-    );
+    visibleDocuments.every((document) => selectedFiles.includes(document.id));
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-slate-50 py-6 text-slate-800">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <header className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="mb-2 text-sm font-semibold text-green-700">
-              InclusIA
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight">Mis archivos</h1>
-            <p className="mt-2 text-sm text-slate-500">
+            <h1 className="page-title">Mis archivos</h1>
+            <p className="page-subtitle mt-2">
               Organizá tus documentos y materiales por materia.
             </p>
           </div>
@@ -403,7 +396,9 @@ export default function MisArchivosPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold">
-              {groupMode === "materia" ? "Mis materias" : "Documentos por estado"}
+              {groupMode === "materia"
+                ? "Mis materias"
+                : "Documentos por estado"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {groupMode === "materia"
@@ -418,12 +413,10 @@ export default function MisArchivosPage() {
               onClick={toggleAllVisible}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
             >
-              {allVisibleSelected ? (
-                <X size={16} />
-              ) : (
-                <Check size={16} />
-              )}
-              {allVisibleSelected ? "Deseleccionar visibles" : "Seleccionar visibles"}
+              {allVisibleSelected ? <X size={16} /> : <Check size={16} />}
+              {allVisibleSelected
+                ? "Deseleccionar visibles"
+                : "Seleccionar visibles"}
             </button>
           )}
         </div>
@@ -432,7 +425,7 @@ export default function MisArchivosPage() {
           <div className="space-y-4">
             {visibleGroups.map((group) => {
               const groupDocuments = visibleDocuments.filter(
-                (document) => document.groupId === group.id
+                (document) => document.groupId === group.id,
               );
               const isExpanded = expandedGroups.includes(group.id);
 
@@ -485,7 +478,8 @@ export default function MisArchivosPage() {
                               : "No hay documentos que coincidan con la búsqueda."}
                           </p>
                           <p className="mt-1 text-sm text-slate-400">
-                            Los documentos aparecerán aquí cuando estén disponibles.
+                            Los documentos aparecerán aquí cuando estén
+                            disponibles.
                           </p>
                         </div>
                       ) : (
@@ -556,7 +550,7 @@ function DocumentView({
   if (view === "lista") {
     return (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-left text-sm">
+        <table className="w-full min-w-150 text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500">
               <th className="w-12 px-3 py-3">
@@ -590,10 +584,7 @@ function DocumentView({
                 </td>
                 <td className="px-3 py-4">
                   <div className="flex items-center gap-3">
-                    <FileText
-                      size={21}
-                      className="shrink-0 text-red-500"
-                    />
+                    <FileText size={21} className="shrink-0 text-red-500" />
                     <span className="font-medium text-slate-700">
                       {document.name}
                     </span>
@@ -637,7 +628,7 @@ function DocumentView({
           {view === "iconos" ? (
             <div className="flex min-h-44 flex-col items-center justify-center rounded-lg bg-slate-50 px-3 py-5 text-center">
               <FileText size={48} className="mb-3 text-red-500" />
-              <p className="w-full break-words text-sm font-semibold text-slate-700">
+              <p className="w-full wrap-break-word text-sm font-semibold text-slate-700">
                 {document.name}
               </p>
               <div className="mt-3">
@@ -647,7 +638,7 @@ function DocumentView({
           ) : (
             <>
               <div
-                className="mb-4 flex aspect-[4/3] flex-col items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-4"
+                className="mb-4 flex aspect-4/3 flex-col items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-4"
                 aria-label="Previsualización ilustrativa del documento"
               >
                 <div className="flex h-full w-full max-w-40 flex-col gap-2 rounded-md border border-slate-200 bg-white p-3 shadow-sm">
@@ -669,7 +660,7 @@ function DocumentView({
                 </span>
               </div>
 
-              <p className="break-words font-semibold text-slate-700">
+              <p className="wrap-break-word font-semibold text-slate-700">
                 {document.name}
               </p>
               <p className="mt-1 text-xs text-slate-500">

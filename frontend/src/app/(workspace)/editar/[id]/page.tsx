@@ -294,9 +294,7 @@ export default function EditarDocumentoPage() {
             aria-hidden="true"
             className="mx-auto size-10 text-slate-500"
           />
-          <h1 className="mt-4 text-xl font-bold">
-            No encontramos este documento
-          </h1>
+          <h1 className="page-title mt-4">No encontramos este documento</h1>
           <p className="mt-2 text-sm text-slate-600">
             Revisá el enlace o volvé a tus archivos para elegir otro material.
           </p>
@@ -496,7 +494,7 @@ function EditorWorkspace({
   return (
     <main className="flex min-h-[calc(100svh-5rem)] flex-col bg-slate-100 pb-14 text-slate-900 lg:h-[calc(100svh-5rem)] lg:min-h-0">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto grid w-full max-w-[1900px] gap-3 px-3 py-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+        <div className="mx-auto grid w-full max-w-7xl gap-3 px-4 py-3 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Link
               href="/archivos"
@@ -509,9 +507,7 @@ function EditorWorkspace({
               <FileText aria-hidden="true" className="size-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold sm:text-base">
-                {document.name}
-              </h1>
+              <h1 className="page-title min-w-0 truncate">{document.name}</h1>
               <p className="truncate text-xs text-slate-500">
                 {document.size} <span aria-hidden="true">·</span> Última
                 modificación: {document.date}
@@ -585,8 +581,8 @@ function EditorWorkspace({
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-[1900px] flex-1 flex-col p-2 sm:p-3">
-        <div className="grid min-h-[70svh] flex-1 grid-cols-1 gap-3 lg:h-[calc(100svh-16rem)] lg:min-h-120 lg:grid-cols-[minmax(18rem,0.33fr)_minmax(0,0.67fr)]">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-2 py-2 sm:px-3 sm:py-3 lg:px-6">
+        <div className="grid min-h-[70svh] flex-1 grid-cols-1 gap-3 xl:h-[calc(100svh-16rem)] xl:min-h-120 xl:grid-cols-[minmax(18rem,0.33fr)_minmax(0,0.67fr)]">
           <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
             <header className="border-b border-slate-200 p-3 sm:p-4">
               <div className="flex items-start gap-2.5 rounded-md bg-red-50 p-3">
@@ -654,7 +650,7 @@ function EditorWorkspace({
 
           <section
             aria-label="Comparación de documentos"
-            className="grid min-h-0 min-w-0 grid-cols-1 gap-2 lg:grid-cols-2"
+            className="grid min-h-0 min-w-0 grid-cols-1 gap-2 xl:grid-cols-2"
           >
             <DocumentPanel
               title="Documento original"
@@ -687,7 +683,7 @@ function EditorWorkspace({
       </div>
 
       <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className="mx-auto flex w-full max-w-[1900px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-5">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
           <div className="flex flex-wrap items-center gap-1">
             <Button
               variant="ghost"

@@ -93,7 +93,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
       <nav
         aria-label="Navegación principal"
-        className="mx-auto flex min-h-17 max-w-7xl items-center justify-between gap-6 px-5 sm:px-8"
+        className="mx-auto flex min-h-17 w-full max-w-7xl items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6"
       >
         <Brand />
         <SectionLinks />

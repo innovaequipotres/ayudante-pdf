@@ -78,16 +78,13 @@ export default function InicioPage() {
   const recentDocuments = documents.slice(0, 4);
 
   return (
-    <main className="min-h-svh bg-[#f7fafc] px-4 text-slate-900">
-      <div className="mx-auto max-w-5xl pb-10 pt-8 sm:px-8 sm:pt-10">
+    <main className="min-h-svh bg-[#f7fafc] text-slate-900">
+      <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-8 sm:px-6 sm:pt-10">
         <section aria-labelledby="welcome-title">
-          <h1
-            id="welcome-title"
-            className="text-xl font-bold tracking-tight sm:text-2xl"
-          >
+          <h1 id="welcome-title" className="page-title">
             ¡Hola, {firstName}!
           </h1>
-          <p className="mt-2 text-sm text-slate-600 sm:text-base">
+          <p className="page-subtitle mt-2">
             ¿Qué material querés analizar hoy?
           </p>
 

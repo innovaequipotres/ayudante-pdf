@@ -39,9 +39,7 @@ export default function RevisionPage() {
           <div className="mx-auto grid size-12 place-items-center rounded-lg bg-slate-100 text-slate-600">
             <FileText aria-hidden="true" className="size-6" />
           </div>
-          <h1 className="mt-4 text-xl font-bold">
-            No encontramos este documento
-          </h1>
+          <h1 className="page-title mt-4">No encontramos este documento</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Revisá el enlace o volvé a tus archivos para elegir otro material.
           </p>
@@ -114,7 +112,7 @@ function RevisionWorkspace({
   return (
     <main className="flex min-h-svh flex-col bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
             <Link
               href="/inicio"
@@ -126,9 +124,7 @@ function RevisionWorkspace({
             </Link>
             <span className="hidden h-8 border-l border-slate-200 sm:block" />
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold sm:text-base">
-                {document.name}
-              </h1>
+              <h1 className="page-title min-w-0 truncate">{document.name}</h1>
               <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
                 {document.size} <span aria-hidden="true">·</span> Comparador de
                 documentos
@@ -151,7 +147,7 @@ function RevisionWorkspace({
         </div>
 
         <div className="border-t border-slate-100">
-          <div className="mx-auto flex w-full max-w-[1600px] items-center justify-center px-4 py-2.5 sm:px-6">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-center px-4 py-2.5 sm:px-6">
             <nav aria-label="Paginación del documento">
               <ol className="flex items-center gap-2 text-sm">
                 <li>
@@ -186,8 +182,8 @@ function RevisionWorkspace({
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-3 py-3 sm:px-5 sm:py-4">
-        <div className="grid flex-1 grid-cols-1 gap-3 lg:h-[calc(100svh-15rem)] lg:min-h-128 lg:grid-cols-2 lg:gap-4">
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-3 sm:px-6 sm:py-4">
+        <div className="grid flex-1 grid-cols-1 gap-3 xl:h-[calc(100svh-15rem)] xl:min-h-128 xl:grid-cols-2 xl:gap-4">
           <section
             aria-labelledby="original-title"
             className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:min-h-0"
@@ -261,7 +257,7 @@ function RevisionWorkspace({
       </div>
 
       <footer className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"

@@ -38,7 +38,7 @@ export default function AnalizandoPage() {
 
   return (
     <main className="flex min-h-svh flex-col bg-[#f7fafc] px-4 py-6 text-slate-900 sm:px-8 sm:py-8">
-      <header className="mx-auto w-full max-w-5xl">
+      <header className="mx-auto w-full max-w-7xl">
         <ol
           aria-label="Etapas del proceso"
           className="mx-auto flex max-w-sm items-center justify-between gap-3 text-xs font-medium sm:text-sm"
@@ -67,7 +67,7 @@ export default function AnalizandoPage() {
         </ol>
       </header>
 
-      <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center py-12 text-center">
+      <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center py-12 text-center">
         <div className="relative grid size-32 place-items-center rounded-full bg-slate-200 text-slate-800 sm:size-36">
           <FileText
             aria-hidden="true"
@@ -84,9 +84,7 @@ export default function AnalizandoPage() {
           />
         </div>
 
-        <h1 className="mt-7 text-xl font-bold sm:text-2xl">
-          Analizando tu material...
-        </h1>
+        <h1 className="page-title mt-7">Analizando tu material...</h1>
         <p className="mt-3 max-w-full wrap-break-word text-sm text-slate-500">
           {pendingUpload?.name ?? "Documento PDF"}
         </p>

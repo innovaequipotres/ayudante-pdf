@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@layer components {
+  .page-title {
+    @apply text-2xl font-bold text-slate-900;
+  }
+
+  .page-subtitle {
+    @apply text-base font-medium text-slate-600;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #0f172a;
