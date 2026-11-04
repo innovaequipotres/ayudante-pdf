@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { mockDiagnostic, mockDocuments, mockUser } from "@/mocks/mockData";
+import { DEMO_MOCKS } from "@/lib/demoMocks";
 import type { Barrier, DiagnosticResult, LumiDocument } from "@/types";
 
 interface LumiStore {
@@ -12,6 +13,7 @@ interface LumiStore {
   activeDocument: LumiDocument | null;
   activeDiagnostic: DiagnosticResult | null;
   setPendingUpload: (file: File | null) => void;
+  setDemoDocument: (fileName: string) => void;
   setActiveDocument: (id: string) => void;
   updateBarrierStatus: (
     barrierId: string,
@@ -37,6 +39,71 @@ export const useLumiStore = create<LumiStore>((set) => ({
   activeDocument: initialActiveDocument,
   activeDiagnostic: initialActiveDocument ? mockDiagnostic : null,
   setPendingUpload: (file) => set({ pendingUpload: file }),
+
+  setDemoDocument: (fileName) =>
+    set((state) => {
+      const demo = DEMO_MOCKS[fileName];
+
+      if (!demo) {
+        return state;
+      }
+
+      const document: LumiDocument = {
+        id: demo.id,
+        name: demo.name,
+        subject: fileName.includes("Biologia")
+          ? "Biología"
+          : fileName.includes("Geografia")
+            ? "Geografía"
+            : "Literatura",
+        size: demo.size,
+        date: "3 de noviembre de 2026",
+        status: "Analizado",
+        originalContent: demo.originalContent,
+        modifiedContent: demo.modifiedContent,
+      };
+      const barriers: Barrier[] = demo.barriers.map(
+        (barrier: {
+          id: string;
+          severity: Barrier["severity"];
+          category: string;
+          original: string;
+          suggestion: string;
+        }) => ({
+          id: barrier.id,
+          type: barrier.category,
+          severity: barrier.severity,
+          detectedFragment: barrier.original,
+          suggestion: barrier.suggestion,
+          status: "Pendiente",
+        }),
+      );
+      const diagnostic: DiagnosticResult = {
+        documentId: document.id,
+        globalScore: 82,
+        readabilityPercentage: 80,
+        barriers,
+      };
+      const documents = state.documents.some((item) => item.id === document.id)
+        ? state.documents.map((item) =>
+            item.id === document.id ? document : item,
+          )
+        : [document, ...state.documents];
+      const diagnostics = state.diagnostics.some(
+        (item) => item.documentId === document.id,
+      )
+        ? state.diagnostics.map((item) =>
+            item.documentId === document.id ? diagnostic : item,
+          )
+        : [...state.diagnostics, diagnostic];
+
+      return {
+        documents,
+        diagnostics,
+        activeDocument: document,
+        activeDiagnostic: diagnostic,
+      };
+    }),
 
   setActiveDocument: (id) =>
     set((state) => {

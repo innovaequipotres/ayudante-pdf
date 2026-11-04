@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ArrowRight, ChevronRight, FileText, UploadCloud } from "lucide-react";
+import { DEMO_MOCKS } from "@/lib/demoMocks";
 import { useLumiStore } from "@/store/useLumiStore";
 import type { LumiDocument } from "@/types";
 
@@ -22,6 +23,7 @@ export default function InicioPage() {
   const documents = useLumiStore((state) => state.documents);
   const diagnostics = useLumiStore((state) => state.diagnostics);
   const setPendingUpload = useLumiStore((state) => state.setPendingUpload);
+  const setDemoDocument = useLumiStore((state) => state.setDemoDocument);
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
@@ -40,9 +42,21 @@ export default function InicioPage() {
       return;
     }
 
+    const demo = DEMO_MOCKS[file.name];
+
+    if (!demo) {
+      setError("");
+      alert("Para la demo solo se admiten los archivos de prueba.");
+      return;
+    }
+
     setError("");
     setPendingUpload(file);
     router.push("/analizando");
+    window.setTimeout(() => {
+      setDemoDocument(file.name);
+      router.push(`/editar/${demo.id}`);
+    }, 3000);
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
