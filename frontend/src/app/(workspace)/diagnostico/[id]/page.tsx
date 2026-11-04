@@ -111,9 +111,7 @@ export default function DiagnosticoGeneralPage() {
           <div className="mx-auto grid size-12 place-items-center rounded-lg bg-slate-100 text-slate-600">
             <FileText aria-hidden="true" className="size-6" />
           </div>
-          <h1 className="mt-4 text-xl font-bold">
-            No encontramos este documento
-          </h1>
+          <h1 className="page-title mt-4">No encontramos este documento</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Revisá el enlace o volvé a tus archivos para elegir otro material.
           </p>
@@ -130,8 +128,8 @@ export default function DiagnosticoGeneralPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-slate-50 py-6 text-slate-900">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <Link
           href="/archivos"
           className="mb-5 inline-flex items-center gap-2 rounded-md text-sm font-medium text-slate-600 transition hover:text-emerald-800"
@@ -140,7 +138,7 @@ export default function DiagnosticoGeneralPage() {
           Mis archivos
         </Link>
 
-        <header className="mb-6 flex flex-col justify-between gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:p-6">
+        <header className="mb-6 flex flex-col justify-between gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:p-6">
           <div className="flex min-w-0 items-center gap-4">
             <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">
               <FileText aria-hidden="true" className="size-6" />
@@ -149,10 +147,10 @@ export default function DiagnosticoGeneralPage() {
               <p className="text-xs font-semibold uppercase text-emerald-800">
                 Diagnóstico general
               </p>
-              <h1 className="mt-1 truncate text-lg font-bold sm:text-xl">
+              <h1 className="page-title mt-1 truncate">
                 {routeDocument.name.replace(/\.pdf$/i, "")}
               </h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="page-subtitle mt-1">
                 {routeDocument.subject} <span aria-hidden="true">·</span>{" "}
                 {routeDocument.date} <span aria-hidden="true">·</span>{" "}
                 {routeDocument.size}

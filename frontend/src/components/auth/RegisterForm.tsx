@@ -89,13 +89,10 @@ export default function RegisterForm() {
       <p className="text-sm font-bold uppercase text-blue-700">
         Un primer paso
       </p>
-      <h1
-        id="auth-heading"
-        className="mt-2 text-3xl font-bold text-slate-900 sm:text-4xl"
-      >
+      <h1 id="auth-heading" className="page-title mt-2">
         Crear cuenta
       </h1>
-      <p className="mt-2 text-sm leading-6 text-slate-600">
+      <p className="page-subtitle mt-2">
         Sumate a una comunidad que crea materiales para aprender sin barreras.
       </p>
 

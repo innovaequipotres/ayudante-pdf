@@ -46,11 +46,8 @@ export default function FaqAndContactSection() {
 
   return (
     <>
-      <section
-        id="preguntas"
-        className="scroll-mt-24 bg-white px-5 py-20 sm:px-8 lg:py-24"
-      >
-        <div className="mx-auto max-w-3xl">
+      <section id="preguntas" className="scroll-mt-24 bg-white py-20 lg:py-24">
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
           <p className="text-center text-sm font-bold uppercase text-blue-700">
             Respuestas claras
           </p>
@@ -82,9 +79,9 @@ export default function FaqAndContactSection() {
 
       <section
         id="contacto"
-        className="scroll-mt-24 bg-slate-50 px-5 py-20 sm:px-8 lg:py-24"
+        className="scroll-mt-24 bg-slate-50 py-20 lg:py-24"
       >
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
+        <div className="mx-auto grid w-full max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
           <div className="max-w-lg">
             <p className="text-sm font-bold uppercase text-blue-700">
               Hablemos
@@ -245,8 +242,8 @@ export default function FaqAndContactSection() {
 
 export function LandingFooter() {
   return (
-    <footer className="bg-slate-950 px-5 pb-8 pt-12 text-white sm:px-8">
-      <div className="mx-auto max-w-7xl">
+    <footer className="bg-slate-950 pb-8 pt-12 text-white">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <div className="flex flex-col items-start justify-between gap-6 rounded-xl bg-linear-to-br from-blue-700 via-indigo-800 to-slate-900 p-6 sm:flex-row sm:items-center sm:p-8 lg:p-10">
           <div className="max-w-2xl">
             <div className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
