@@ -161,7 +161,7 @@ export default function DiagnosticoGeneralPage() {
           </div>
 
           <Link
-            href={`/comparador/${encodeURIComponent(routeDocument.id)}`}
+            href={`/editar/${encodeURIComponent(routeDocument.id)}`}
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-offset-2"
           >
             <ScanSearch aria-hidden="true" className="size-4" />
