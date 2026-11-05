@@ -51,10 +51,11 @@ export default function InicioPage() {
     }
 
     setError("");
+    const fileUrl = URL.createObjectURL(file);
     setPendingUpload(file);
     router.push("/analizando");
     window.setTimeout(() => {
-      setDemoDocument(file.name);
+      setDemoDocument(file.name, fileUrl);
       router.push(`/diagnostico/${demo.id}`);
     }, 3000);
   };

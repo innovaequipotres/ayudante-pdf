@@ -1,13 +1,14 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Bookmark, Download, Sparkles, X } from "lucide-react";
+import { Bookmark, Download, LoaderCircle, Sparkles, X } from "lucide-react";
 
 export interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDownloadPdf?: () => void;
   onSaveToApp?: () => void;
+  isGeneratingPdf?: boolean;
 }
 
 export default function ExportModal({
@@ -15,6 +16,7 @@ export default function ExportModal({
   onClose,
   onDownloadPdf,
   onSaveToApp,
+  isGeneratingPdf = false,
 }: ExportModalProps) {
   return (
     <Dialog.Root
@@ -59,15 +61,25 @@ export default function ExportModal({
             <button
               type="button"
               onClick={onDownloadPdf}
-              className="inline-flex min-h-12 items-center justify-center gap-3 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 sm:text-base"
+              disabled={isGeneratingPdf}
+              aria-busy={isGeneratingPdf}
+              className="inline-flex min-h-12 items-center justify-center gap-3 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-70 sm:text-base"
             >
-              <Download aria-hidden="true" className="size-5" />
-              Descargar PDF
+              {isGeneratingPdf ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-5 animate-spin"
+                />
+              ) : (
+                <Download aria-hidden="true" className="size-5" />
+              )}
+              {isGeneratingPdf ? "Generando PDF..." : "Descargar PDF"}
             </button>
             <button
               type="button"
               onClick={onSaveToApp}
-              className="inline-flex min-h-12 items-center justify-center gap-3 rounded-lg border border-blue-200 bg-transparent px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 sm:text-base"
+              disabled={isGeneratingPdf}
+              className="inline-flex min-h-12 items-center justify-center gap-3 rounded-lg border border-blue-200 bg-transparent px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-70 sm:text-base"
             >
               <Bookmark aria-hidden="true" className="size-5" />
               Guardar en la app
