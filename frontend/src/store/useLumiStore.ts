@@ -10,10 +10,11 @@ interface LumiStore {
   documents: LumiDocument[];
   diagnostics: DiagnosticResult[];
   pendingUpload: File | null;
+  activeFileUrl: string | null;
   activeDocument: LumiDocument | null;
   activeDiagnostic: DiagnosticResult | null;
   setPendingUpload: (file: File | null) => void;
-  setDemoDocument: (fileName: string) => void;
+  setDemoDocument: (fileName: string, fileUrl: string) => void;
   setActiveDocument: (id: string) => void;
   updateBarrierStatus: (
     barrierId: string,
@@ -31,23 +32,29 @@ const initialActiveDocument =
   mockDocuments.find((document) => document.id === mockDiagnostic.documentId) ??
   null;
 
-export const useLumiStore = create<LumiStore>((set) => ({
+export const useLumiStore = create<LumiStore>((set, get) => ({
   user: mockUser,
   documents: mockDocuments,
   diagnostics: [mockDiagnostic],
   pendingUpload: null,
+  activeFileUrl: null,
   activeDocument: initialActiveDocument,
   activeDiagnostic: initialActiveDocument ? mockDiagnostic : null,
   setPendingUpload: (file) => set({ pendingUpload: file }),
 
-  setDemoDocument: (fileName) =>
+  setDemoDocument: (fileName, fileUrl) => {
+    const demo = DEMO_MOCKS[fileName];
+
+    if (!demo) {
+      return;
+    }
+
+    const previousFileUrl = get().activeFileUrl;
+    if (previousFileUrl && previousFileUrl !== fileUrl) {
+      URL.revokeObjectURL(previousFileUrl);
+    }
+
     set((state) => {
-      const demo = DEMO_MOCKS[fileName];
-
-      if (!demo) {
-        return state;
-      }
-
       const document: LumiDocument = {
         id: demo.id,
         name: demo.name,
@@ -100,10 +107,12 @@ export const useLumiStore = create<LumiStore>((set) => ({
       return {
         documents,
         diagnostics,
+        activeFileUrl: fileUrl,
         activeDocument: document,
         activeDiagnostic: diagnostic,
       };
-    }),
+    });
+  },
 
   setActiveDocument: (id) =>
     set((state) => {
