@@ -1,4 +1,4 @@
-"""Muestra las observaciones de las reglas automáticas de texto.
+"""Muestra las observaciones de las reglas automáticas.
 
 Uso:
     .venv/bin/python scripts/preview_rules.py --pdf ruta/al/documento.pdf

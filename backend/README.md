@@ -150,23 +150,36 @@ curl http://127.0.0.1:8000/api/v1/sessions/<session_id>/content
 > proceso. Se pierden al reiniciar el servidor y no se comparten entre workers.
 > Más adelante se reemplazarán por una base de datos.
 
-## Reglas automáticas de texto
+## Reglas automáticas
 
 `app/scanner/rules.py` analiza el contenido extraído y devuelve observaciones de
-accesibilidad. Todavía no tiene endpoint: se ejecuta con `run_rules(content)` y
-lo consumirá el diagnóstico en la próxima etapa.
+accesibilidad de texto y de imágenes. Todavía no tiene endpoint: se ejecuta con
+`run_rules(content)` y lo consumirá el diagnóstico en la próxima etapa.
 
-| Regla            | Qué detecta                            | Umbral inicial                                        |
-| ---------------- | -------------------------------------- | ----------------------------------------------------- |
-| `long_paragraph` | párrafos extensos                      | más de 150 palabras para revisar; más de 300, barrera |
-| `long_sentence`  | oraciones extensas                     | más de 30 palabras para revisar; más de 50, barrera   |
-| `no_headings`    | material extenso sin ningún título     | más de 150 palabras para revisar; más de 400, barrera |
-| `heading_skip`   | salto de más de un nivel entre títulos | mejora sugerida                                       |
+| Regla               | Qué detecta                            | Umbral inicial / severidad                            |
+| ------------------- | -------------------------------------- | ----------------------------------------------------- |
+| `long_paragraph`    | párrafos extensos                      | más de 150 palabras para revisar; más de 300, barrera |
+| `long_sentence`     | oraciones extensas                     | más de 30 palabras para revisar; más de 50, barrera   |
+| `no_headings`       | material extenso sin ningún título     | más de 150 palabras para revisar; más de 400, barrera |
+| `heading_skip`      | salto de más de un nivel entre títulos | mejora sugerida                                       |
+| `image_without_alt` | imágenes sin texto alternativo         | barrera; una observación por imagen                   |
+| `image_only_page`   | páginas con imágenes y poco texto      | `IMAGE_ONLY_PAGE_MAX_WORDS` (15) palabras; revisar    |
 
 Los umbrales son propuestas iniciales y están en constantes al inicio de
 `rules.py`. Solo el de 300 palabras de `long_paragraph` viene del documento del
 proyecto; el resto debe validarse con Accesibilidad. La documentación completa
 de criterios corresponde a BE-10.
+
+El umbral de `image_only_page` también se puede pasar como argumento:
+`check_image_only_pages(content, max_words=10)`.
+
+**Texto alternativo en PDFs:** `pdfplumber` no expone el texto alternativo de las
+imágenes. El procesador deja `alt_text` en `None`, así que `image_without_alt`
+marca todas las imágenes de un PDF aunque el archivo original sí tenga
+descripción. Son posibles falsos positivos: el detalle de la observación lo
+aclara y conviene revisar la imagen. Analizar el contenido o el contraste de las
+imágenes queda para una etapa futura (por ejemplo con `pymupdf`, `pillow` u
+`opencv-python-headless`).
 
 Si el procesador de PDFs no detecta títulos (por ejemplo, en documentos con
 formato plano), `no_headings` puede marcar un falso positivo. Es una limitación
@@ -221,7 +234,7 @@ backend/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
 │   │   └── text_processor.py      # Extracción de bloques desde texto plano
 │   ├── scanner/
-│   │   └── rules.py               # Reglas automáticas de texto
+│   │   └── rules.py               # Reglas automáticas de contenido
 │   ├── schemas/
 │   │   ├── common.py              # ErrorResponse
 │   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
