@@ -10,6 +10,9 @@ import pytest
 from app.scanner.rules import (
     EXCERPT_MAX_CHARS,
     HEADING_SKIP_SEVERITY,
+    IMAGE_ONLY_PAGE_MAX_WORDS,
+    IMAGE_ONLY_PAGE_SEVERITY,
+    IMAGE_WITHOUT_ALT_SEVERITY,
     LONG_PARAGRAPH_WORDS_HIGH,
     LONG_PARAGRAPH_WORDS_MEDIUM,
     LONG_SENTENCE_WORDS_HIGH,
@@ -18,6 +21,7 @@ from app.scanner.rules import (
     NO_HEADINGS_WORDS_MEDIUM,
     RULES,
     RULES_BY_CODE,
+    check_image_only_pages,
     run_rules,
     split_sentences,
 )
@@ -282,6 +286,212 @@ def test_heading_skip_ignores_first_heading_level() -> None:
     assert _by_rule(run_rules(content), "heading_skip") == []
 
 
+def test_image_without_alt_reports_one_observation_per_image() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Título"),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+            ContentBlock(type=BlockType.IMAGE, page=3, width=80, height=40),
+        ],
+        page_count=3,
+    )
+
+    found = _by_rule(run_rules(content), "image_without_alt")
+
+    assert [observation.block_id for observation in found] == ["b2", "b3"]
+    assert [observation.page for observation in found] == [2, 3]
+    assert all(
+        observation.severity is IMAGE_WITHOUT_ALT_SEVERITY for observation in found
+    )
+    assert all(observation.category is Category.VISUAL for observation in found)
+
+
+def test_image_without_alt_ignores_images_with_description() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Título"),
+            ContentBlock(
+                type=BlockType.IMAGE,
+                page=1,
+                alt_text="Gráfico de barras",
+                width=100,
+                height=50,
+            ),
+            ContentBlock(
+                type=BlockType.IMAGE,
+                page=1,
+                alt_text="   ",
+                width=100,
+                height=50,
+            ),
+        ],
+        page_count=1,
+    )
+
+    found = _by_rule(run_rules(content), "image_without_alt")
+
+    assert [observation.block_id for observation in found] == ["b3"]
+
+
+def test_image_without_alt_warns_about_pdf_alt_text_limitation() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Título"),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+        ],
+        page_count=2,
+    )
+
+    observation = _by_rule(run_rules(content), "image_without_alt")[0]
+
+    assert observation.id == "image_without_alt:b2"
+    detail = (observation.detail or "").lower()
+    assert "página 2" in detail
+    assert "texto alternativo" in detail
+    assert "pdf" in detail
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        (0, True),
+        (IMAGE_ONLY_PAGE_MAX_WORDS, True),
+        (IMAGE_ONLY_PAGE_MAX_WORDS + 1, False),
+    ],
+)
+def test_image_only_page_thresholds(count: int, expected: bool) -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Portada"),
+            ContentBlock(type=BlockType.PARAGRAPH, page=2, text=_words(count)),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+        ],
+        page_count=2,
+    )
+
+    found = _by_rule(run_rules(content), "image_only_page")
+
+    assert bool(found) is expected
+    if expected:
+        assert found[0].page == 2
+        assert found[0].block_id is None
+        assert found[0].severity is IMAGE_ONLY_PAGE_SEVERITY
+        assert f"{count} palabras" in (found[0].detail or "")
+
+
+def test_image_only_page_requires_images() -> None:
+    content = _content(
+        [
+            ContentBlock(
+                type=BlockType.PARAGRAPH,
+                page=2,
+                text=_words(IMAGE_ONLY_PAGE_MAX_WORDS),
+            )
+        ],
+        page_count=2,
+    )
+
+    assert _by_rule(run_rules(content), "image_only_page") == []
+
+
+def test_image_only_page_reports_page_with_only_images() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Título"),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=80, height=40),
+        ],
+        page_count=2,
+    )
+
+    found = _by_rule(run_rules(content), "image_only_page")
+
+    assert len(found) == 1
+    assert found[0].id == "image_only_page:pagina-2"
+    assert found[0].page == 2
+    assert found[0].block_id is None
+    assert "0 palabras" in (found[0].detail or "")
+    assert "2 imágenes" in (found[0].detail or "")
+
+
+def test_image_only_page_ids_are_unique_per_page() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Título"),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+            ContentBlock(type=BlockType.IMAGE, page=3, width=100, height=50),
+        ],
+        page_count=3,
+    )
+
+    found = _by_rule(run_rules(content), "image_only_page")
+
+    assert [observation.page for observation in found] == [2, 3]
+    assert [observation.id for observation in found] == [
+        "image_only_page:pagina-2",
+        "image_only_page:pagina-3",
+    ]
+
+
+def test_image_only_page_counts_words_per_page() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.PARAGRAPH, page=1, text=_words(200)),
+            ContentBlock(
+                type=BlockType.PARAGRAPH,
+                page=2,
+                text=_words(IMAGE_ONLY_PAGE_MAX_WORDS - 10),
+            ),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+            ContentBlock(
+                type=BlockType.PARAGRAPH,
+                page=3,
+                text=_words(IMAGE_ONLY_PAGE_MAX_WORDS + 1),
+            ),
+            ContentBlock(type=BlockType.IMAGE, page=3, width=100, height=50),
+        ],
+        page_count=3,
+    )
+
+    found = _by_rule(run_rules(content), "image_only_page")
+
+    assert [observation.page for observation in found] == [2]
+
+
+def test_image_only_page_threshold_is_configurable() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.HEADING, level=1, page=1, text="Portada"),
+            ContentBlock(
+                type=BlockType.PARAGRAPH,
+                page=2,
+                text=_words(IMAGE_ONLY_PAGE_MAX_WORDS + 25),
+            ),
+            ContentBlock(type=BlockType.IMAGE, page=2, width=100, height=50),
+        ],
+        page_count=2,
+    )
+
+    assert _by_rule(run_rules(content), "image_only_page") == []
+    found = check_image_only_pages(
+        content,
+        max_words=IMAGE_ONLY_PAGE_MAX_WORDS + 25,
+    )
+
+    assert [observation.page for observation in found] == [2]
+
+
+def test_image_only_page_ignores_text_sources() -> None:
+    content = _content(
+        [
+            ContentBlock(type=BlockType.PARAGRAPH, text=_words(3)),
+            ContentBlock(type=BlockType.IMAGE, width=100, height=50),
+        ]
+    )
+
+    assert _by_rule(run_rules(content), "image_only_page") == []
+
+
 def test_observation_includes_all_required_fields() -> None:
     content = _content(
         [
@@ -364,11 +574,17 @@ def test_rules_catalog_is_consistent() -> None:
         "long_sentence",
         "no_headings",
         "heading_skip",
+        "image_without_alt",
+        "image_only_page",
     ]
     assert len(codes) == len(set(codes))
     assert set(RULES_BY_CODE) == set(codes)
     for rule in RULES:
-        assert rule.category in (Category.COMPREHENSION, Category.STRUCTURE)
+        assert rule.category in (
+            Category.COMPREHENSION,
+            Category.STRUCTURE,
+            Category.VISUAL,
+        )
         assert rule.title
         assert rule.why_it_matters
         assert rule.recommendation
