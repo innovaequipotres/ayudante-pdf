@@ -22,6 +22,7 @@ from app.core.exceptions import AppError
 from app.processors.pdf_processor import extract_from_pdf
 from app.processors.text_processor import extract_from_text
 from app.scanner.rules import run_rules
+from app.scanner.scoring import build_diagnosis
 from app.schemas.content import ExtractedContent
 from app.schemas.session import SessionResponse, SessionStatus, SourceType
 from app.services.content_service import build_content
@@ -69,11 +70,22 @@ def main() -> int:
         return 1
 
     observations = run_rules(content)
+    diagnosis = build_diagnosis(content.session_id, observations)
     print(
         f"Bloques: {len(content.blocks)} | "
         f"Palabras: {content.summary.word_count} | "
         f"Observaciones: {len(observations)}"
     )
+    print(f"Puntaje: {diagnosis.score}/100 | Nivel: {diagnosis.level.value}")
+    print("Categorías:")
+    for result in diagnosis.categories:
+        print(
+            f"  - {result.category.value}: {result.severity.value} "
+            f"(barreras: {result.barrier_count}, "
+            f"revisar: {result.review_count}, "
+            f"mejoras: {result.suggestion_count})"
+        )
+    print(f"\n{diagnosis.disclaimer}")
 
     for observation in observations:
         print(f"\n[{observation.severity.value}] {observation.title}")
