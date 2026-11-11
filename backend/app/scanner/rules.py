@@ -9,16 +9,27 @@ Umbrales
 Los valores de las constantes son propuestas iniciales. Solo el umbral de 300
 palabras para un párrafo extenso viene del documento del proyecto; el resto
 debe validarse con el equipo de Accesibilidad (BE-10). No son normas.
+
+Límites de las reglas visuales
+------------------------------
+- **Texto alternativo en PDF:** ``pdfplumber`` no expone el texto alternativo,
+  así que ``pdf_processor`` deja ``alt_text`` en ``None`` y toda imagen de un
+  PDF se marca como si no tuviera descripción. Puede ser un falso positivo; la
+  observación lo aclara y conviene revisar la imagen antes de descartarla.
+- **Contenido de las imágenes:** no se analiza el contraste ni lo que muestra
+  la imagen, solo su presencia, tamaño y posición.
 """
 
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.schemas.content import BlockType, ContentBlock, ExtractedContent
 from app.schemas.observation import Category, Observation, Severity
+from app.schemas.session import SourceType
 
 __all__ = [
     "RULES",
@@ -38,6 +49,9 @@ NO_HEADINGS_WORDS_MEDIUM = 150
 NO_HEADINGS_WORDS_HIGH = 400
 HEADING_SKIP_SEVERITY = Severity.LOW
 EXCERPT_MAX_CHARS = 160
+IMAGE_ONLY_PAGE_MAX_WORDS = 15
+IMAGE_WITHOUT_ALT_SEVERITY = Severity.HIGH
+IMAGE_ONLY_PAGE_SEVERITY = Severity.MEDIUM
 
 # Abreviaturas con más de un punto: se protegen todos sus puntos para no
 # cortar la oración en medio de "EE. UU." o "p. ej.".
@@ -140,12 +154,18 @@ def _observation(
     page: int | None = None,
     excerpt: str | None = None,
     detail: str | None = None,
+    key: str | None = None,
 ) -> Observation:
-    """Arma una observación con los metadatos del catálogo."""
+    """Arma una observación con los metadatos del catálogo.
+
+    ``key`` identifica las observaciones que afectan a una página completa y no
+    a un bloque, para que sus identificadores no se repitan.
+    """
     rule = RULES_BY_CODE[rule_id]
     block_id = block.id if block is not None and block.id else None
+    subject = block_id or key or "documento"
     return Observation(
-        id=f"{rule_id}:{block_id or 'documento'}",
+        id=f"{rule_id}:{subject}",
         rule_id=rule_id,
         category=rule.category,
         severity=severity,
@@ -284,6 +304,75 @@ def check_heading_skips(content: ExtractedContent) -> list[Observation]:
     return found
 
 
+def check_images_without_alt(content: ExtractedContent) -> list[Observation]:
+    """Detecta imágenes sin texto alternativo, una observación por imagen."""
+    found: list[Observation] = []
+    for block in content.blocks:
+        if block.type is not BlockType.IMAGE:
+            continue
+        if (block.alt_text or "").strip():
+            continue
+
+        detail = None
+        if block.page is not None:
+            detail = f"Está en la página {block.page}."
+        if content.source_type is SourceType.PDF:
+            note = (
+                "En un PDF no se puede leer el texto alternativo original: "
+                "la imagen podría tenerlo y aun así marcarse."
+            )
+            detail = f"{detail} {note}" if detail else note
+
+        found.append(
+            _observation(
+                "image_without_alt",
+                IMAGE_WITHOUT_ALT_SEVERITY,
+                block=block,
+                detail=detail,
+            )
+        )
+    return found
+
+
+def check_image_only_pages(
+    content: ExtractedContent,
+    max_words: int = IMAGE_ONLY_PAGE_MAX_WORDS,
+) -> list[Observation]:
+    """Detecta páginas con imágenes y poco texto.
+
+    ``max_words`` permite ajustar el umbral; por defecto usa
+    ``IMAGE_ONLY_PAGE_MAX_WORDS``.
+    """
+    words: dict[int, int] = defaultdict(int)
+    images: dict[int, int] = defaultdict(int)
+    for block in content.blocks:
+        if block.page is None:
+            continue
+        if block.type is BlockType.IMAGE:
+            images[block.page] += 1
+        else:
+            words[block.page] += block.word_count
+
+    found: list[Observation] = []
+    for page, image_count in sorted(images.items()):
+        if words[page] > max_words:
+            continue
+        noun = "imagen" if image_count == 1 else "imágenes"
+        found.append(
+            _observation(
+                "image_only_page",
+                IMAGE_ONLY_PAGE_SEVERITY,
+                page=page,
+                key=f"pagina-{page}",
+                detail=(
+                    f"La página {page} tiene {words[page]} palabras y "
+                    f"{image_count} {noun}."
+                ),
+            )
+        )
+    return found
+
+
 # Catálogo central: para sumar una regla alcanza con escribir su función y
 # agregar una entrada acá. El resto del escáner no cambia.
 RULES: tuple[Rule, ...] = (
@@ -330,6 +419,34 @@ RULES: tuple[Rule, ...] = (
         ),
         "Usar los niveles de título en orden, sin saltear ninguno.",
         check_heading_skips,
+    ),
+    Rule(
+        "image_without_alt",
+        Category.VISUAL,
+        "Imagen sin descripción",
+        (
+            "La información visual puede no estar disponible para quienes usan "
+            "lectores de pantalla."
+        ),
+        (
+            "Incorporar un texto alternativo que describa la información "
+            "relevante de la imagen."
+        ),
+        check_images_without_alt,
+    ),
+    Rule(
+        "image_only_page",
+        Category.VISUAL,
+        "Página con poco texto y con imágenes",
+        (
+            "Si la información está solo en imágenes, no llega a quienes no "
+            "pueden verlas."
+        ),
+        (
+            "Revisar que el contenido de las imágenes también esté explicado "
+            "con texto."
+        ),
+        check_image_only_pages,
     ),
 )
 
