@@ -147,8 +147,6 @@ curl http://127.0.0.1:8000/api/v1/sessions/<session_id>/content
 > **Almacenamiento temporal:** por ahora las sesiones y los contenidos extraídos
 > viven en memoria del proceso. Se pierden al reiniciar el servidor y no se
 > comparten entre workers. Más adelante se reemplazarán por una base de datos.
-> proceso. Se pierden al reiniciar el servidor y no se comparten entre workers.
-> Más adelante se reemplazarán por una base de datos.
 
 ## Reglas automáticas
 
@@ -192,6 +190,38 @@ Para ver las observaciones de un material:
 .venv/bin/python scripts/preview_rules.py --text "texto pegado"
 ```
 
+## Puntaje del diagnóstico
+
+`app/scanner/scoring.py` convierte las observaciones de `run_rules(content)` en
+un puntaje de 0 a 100 y un nivel general. Todavía no tiene endpoint:
+`build_diagnosis(session_id, observations)` arma el resultado que consumirá la
+API de diagnóstico en la próxima etapa.
+
+Cada observación resta según su severidad:
+
+| Severidad | Nivel     | Penalización |
+| --------- | --------- | ------------ |
+| `high`    | `barrier` | 10 puntos    |
+| `medium`  | `review`  | 4 puntos     |
+| `low`     | `review`  | 1 punto      |
+
+Las penalizaciones se agrupan por `rule_id` y cada regla resta como máximo 30
+puntos, para que un problema repetido no opaque el resto del material. La
+fórmula es `max(0, 100 - suma)`: un material sin observaciones obtiene 100.
+
+El nivel general es `ok` cuando no hay hallazgos, `review` cuando hay algo para
+revisar y `barrier` cuando al menos una observación es una barrera. El resultado
+por categoría incluye siempre las seis categorías (`comprehension`, `structure`,
+`visual`, `representation`, `multimedia`, `navigation`), con la cantidad de
+barreras, observaciones para revisar y mejoras sugeridas.
+
+El diagnóstico incluye el aviso `SCORE_DISCLAIMER`: el puntaje es orientativo y
+no constituye una certificación formal de accesibilidad. La ponderación es una
+propuesta inicial y debe validarse con el equipo de Accesibilidad (BE-10).
+
+El script de previsualización muestra el puntaje y el resultado por categoría
+junto con las observaciones.
+
 ## Tests
 
 ```bash
@@ -234,10 +264,12 @@ backend/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
 │   │   └── text_processor.py      # Extracción de bloques desde texto plano
 │   ├── scanner/
-│   │   └── rules.py               # Reglas automáticas de contenido
+│   │   ├── rules.py               # Reglas automáticas de contenido
+│   │   └── scoring.py             # Puntaje, nivel y resultado por categoría
 │   ├── schemas/
 │   │   ├── common.py              # ErrorResponse
 │   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
+│   │   ├── diagnosis.py           # Diagnosis, CategoryResult y DiagnosisLevel
 │   │   ├── observation.py         # Observation, Category y Severity
 │   │   └── session.py             # SourceType, SessionStatus, TextInput, SessionResponse
 │   ├── services/
@@ -249,6 +281,7 @@ backend/
 │   ├── test_content.py
 │   ├── test_pdf_processor.py
 │   ├── test_rules.py
+│   ├── test_scoring.py
 │   ├── test_sessions.py
 │   └── test_text_processor.py
 ├── .env.example
