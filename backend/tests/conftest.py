@@ -11,10 +11,12 @@ def clean_session_store():
     session_service._sessions.clear()
     session_service._raw_contents.clear()
     session_service._extracted_contents.clear()
+    session_service._diagnoses.clear()
     yield
     session_service._sessions.clear()
     session_service._raw_contents.clear()
     session_service._extracted_contents.clear()
+    session_service._diagnoses.clear()
 
 
 @pytest.fixture
