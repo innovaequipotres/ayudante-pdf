@@ -1,9 +1,17 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import content, sessions
+from app.api.v1.endpoints import content, diagnosis, sessions
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
+
+# Sin esto, los logs INFO de la aplicación (por ejemplo, cuándo se consulta a
+# la IA) quedan ocultos porque el logger raíz usa WARNING por defecto. Se sube
+# solo el nivel de ``app`` para no habilitar los INFO de terceros.
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("app").setLevel(logging.INFO)
 
 app = FastAPI(
     title="Ayudante PDF Backend",
@@ -24,6 +32,7 @@ app.add_middleware(
 
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(content.router, prefix="/api/v1")
+app.include_router(diagnosis.router, prefix="/api/v1")
 
 register_exception_handlers(app)
 
