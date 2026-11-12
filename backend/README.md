@@ -173,8 +173,9 @@ accesibilidad de texto y de imágenes. Todavía no tiene endpoint: se ejecuta co
 
 Los umbrales son propuestas iniciales y están en constantes al inicio de
 `rules.py`. Solo el de 300 palabras de `long_paragraph` viene del documento del
-proyecto; el resto debe validarse con Accesibilidad. La documentación completa
-de criterios corresponde a BE-10.
+proyecto; el resto son decisiones del equipo a calibrar con Accesibilidad. Cada
+regla tiene un campo `reference` con su fuente y el detalle completo está en
+[`docs/accessibility-criteria.md`](../docs/accessibility-criteria.md).
 
 El umbral de `image_only_page` también se puede pasar como argumento:
 `check_image_only_pages(content, max_words=10)`.
@@ -225,7 +226,9 @@ barreras, observaciones para revisar y mejoras sugeridas.
 
 El diagnóstico incluye el aviso `SCORE_DISCLAIMER`: el puntaje es orientativo y
 no constituye una certificación formal de accesibilidad. La ponderación es una
-propuesta inicial y debe validarse con el equipo de Accesibilidad (BE-10).
+propuesta inicial a calibrar con el set de evaluación; el detalle y las
+decisiones abiertas están en
+[`docs/accessibility-criteria.md`](../docs/accessibility-criteria.md).
 
 El script de previsualización muestra el puntaje y el resultado por categoría
 junto con las observaciones.
