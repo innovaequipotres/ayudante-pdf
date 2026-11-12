@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from app.scanner import ai_analysis
-from app.scanner.ai_analysis import AI_MAX_CHARS, AiResponse, analyze_with_ai
+from app.scanner.ai_analysis import (
+    AI_MAX_CHARS,
+    AI_RULES,
+    AiResponse,
+    analyze_with_ai,
+)
 from app.schemas.content import BlockType, ContentBlock
 from app.schemas.observation import Category, ObservationSource, Severity
 from app.services.gemini import AiUnavailableError
@@ -275,3 +280,15 @@ def test_empty_material_does_not_call_provider() -> None:
 def test_non_positive_limit_is_rejected() -> None:
     with pytest.raises(ValueError):
         analyze_with_ai(_blocks(), FakeAI(_raw([])), max_chars=0)
+
+
+def test_ai_rules_catalog_is_consistent() -> None:
+    codes = [rule.code for rule in AI_RULES]
+
+    assert len(codes) == len(set(codes))
+    for rule in AI_RULES:
+        assert rule.title
+        assert rule.description
+        assert rule.why_it_matters
+        assert rule.recommendation
+        assert rule.reference

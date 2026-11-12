@@ -588,6 +588,7 @@ def test_rules_catalog_is_consistent() -> None:
         assert rule.title
         assert rule.why_it_matters
         assert rule.recommendation
+        assert rule.reference
         assert callable(rule.check)
 
 
