@@ -10,7 +10,7 @@ queda para el MVP** y **qué falta validar**.
 | Fecha        | 2026-11-12                                              |
 | Rama / issue | `docs/be-10-criteria`                                   |
 | Responsable  | Equipo de Backend                                       |
-| Revisión     | Equipo de Accesibilidad (pendiente)                     |
+| Revisión     | Equipo entero                                           |
 | Estado       | Borrador. Las decisiones abiertas están en la sección 9 |
 
 > **Aviso de alcance.** El puntaje es un indicador orientativo. No constituye
