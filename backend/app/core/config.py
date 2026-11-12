@@ -16,8 +16,17 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    ai_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+    openrouter_api_key: str = ""
+    # Sin modelo por defecto: los nombres cambian y los disponibles dependen de
+    # la cuenta. Elegir uno en https://openrouter.ai/models filtrando por
+    # structured_outputs. Los modelos :free tienen límites de uso variables.
+    openrouter_model: str = ""
+    openrouter_app_name: str = "Ayudante PDF"
+    openrouter_referer: str = ""
+    openrouter_timeout_seconds: float = 30.0
     max_upload_mb: int = 25
     cors_origins: str = (
         "http://localhost:3000,http://127.0.0.1:3000,"

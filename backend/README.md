@@ -1,7 +1,8 @@
 # Ayudante PDF — Backend
 
 Backend de la aplicación **Ayudante PDF**, construido con **FastAPI**. Expone la API que
-procesa documentos PDF y se integra con **Google Gemini**.
+procesa documentos PDF y se integra con **Google Gemini** u **OpenRouter** para el
+análisis semántico con IA.
 
 ## Requisitos
 
@@ -41,12 +42,18 @@ cp .env.example .env
 
 El archivo `.env` está en `.gitignore` y **no debe subirse al repositorio**.
 
-| Variable         | Descripción                             | Default                                                                                   |
-| ---------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `GEMINI_API_KEY` | Clave de API de Google Gemini           | _(vacío)_                                                                                 |
-| `GEMINI_MODEL`   | Modelo de Gemini a utilizar             | `gemini-2.0-flash`                                                                        |
-| `MAX_UPLOAD_MB`  | Tamaño máximo de PDF permitido (MB)     | `25`                                                                                      |
-| `CORS_ORIGINS`   | Orígenes permitidos, separados por coma | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000` |
+| Variable                     | Descripción                                     | Default                                                                                   |
+| ---------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `AI_PROVIDER`                | Proveedor de IA: `gemini` u `openrouter`        | `gemini`                                                                                  |
+| `GEMINI_API_KEY`             | Clave de API de Google Gemini                   | _(vacío)_                                                                                 |
+| `GEMINI_MODEL`               | Modelo de Gemini a utilizar                     | `gemini-2.0-flash`                                                                        |
+| `OPENROUTER_API_KEY`         | Clave de API de OpenRouter                      | _(vacío)_                                                                                 |
+| `OPENROUTER_MODEL`           | Modelo de OpenRouter (sin valor por defecto)    | _(vacío)_                                                                                 |
+| `OPENROUTER_APP_NAME`        | Nombre enviado en el header `X-Title`           | `Ayudante PDF`                                                                            |
+| `OPENROUTER_REFERER`         | URL opcional enviada en `HTTP-Referer`          | _(vacío)_                                                                                 |
+| `OPENROUTER_TIMEOUT_SECONDS` | Timeout de las llamadas a OpenRouter (segundos) | `30`                                                                                      |
+| `MAX_UPLOAD_MB`              | Tamaño máximo de PDF permitido (MB)             | `25`                                                                                      |
+| `CORS_ORIGINS`               | Orígenes permitidos, separados por coma         | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000` |
 
 ## Ejecutar el proyecto
 
@@ -222,6 +229,78 @@ propuesta inicial y debe validarse con el equipo de Accesibilidad (BE-10).
 El script de previsualización muestra el puntaje y el resultado por categoría
 junto con las observaciones.
 
+## Análisis semántico con IA
+
+`app/scanner/ai_analysis.py` complementa las reglas con observaciones
+semánticas (consignas ambiguas, términos sin definir, secciones sobrecargadas,
+referencias visuales sin explicar y secuencias de pasos poco claras). El
+resultado se valida contra el catálogo `AI_RULES` y contra los bloques reales:
+se descartan reglas inexistentes, bloques inexistentes y duplicados. La
+severidad de estas observaciones siempre es `medium` y su `source` es `ai`.
+
+El texto enviado se recorta a `AI_MAX_CHARS` (12.000 caracteres) y el resultado
+indica `truncated=true` cuando se analizó solo una parte. Las instrucciones van
+en el mensaje de sistema y el material en el mensaje de usuario; nunca se
+mezclan. Si la IA falla, el resultado queda en `ai_status="unavailable"` y el
+diagnóstico por reglas sigue disponible sin cambios.
+
+### Proveedores
+
+El proveedor se elige con `AI_PROVIDER`:
+
+- `gemini` (default): usa `GEMINI_API_KEY` y `GEMINI_MODEL`. El comportamiento
+  es el mismo que antes de agregar OpenRouter.
+- `openrouter`: usa `OPENROUTER_API_KEY` y `OPENROUTER_MODEL`. OpenRouter
+  expone una API compatible con OpenAI y puede servir el modelo con distintos
+  proveedores; el texto se envía tanto a OpenRouter como al proveedor del
+  modelo elegido.
+
+`OPENROUTER_MODEL` no tiene valor por defecto a propósito: los catálogos
+cambian y los modelos disponibles dependen de la cuenta. Elegí uno en
+<https://openrouter.ai/models> filtrando por **structured outputs**. Los
+modelos con sufijo `:free` tienen límites de uso variables; verificá los
+vigentes antes de confiar en ellos para pruebas o producción.
+
+Si `AI_PROVIDER=openrouter` y falta la clave o el modelo, el backend deja un
+warning y el análisis con IA queda deshabilitado (`unavailable`); no se cae el
+resto de la aplicación. Lo mismo pasa con un `AI_PROVIDER` desconocido.
+
+OpenRouter se usa con salidas estructuradas estrictas (`json_schema`) y se exige
+que el endpoint soporte todos los parámetros enviados
+(`provider.require_parameters`). Si la API rechaza el `response_format` con un
+400, se reintenta una sola vez con `json_object` y el esquema agregado a las
+instrucciones. Los errores 401, 402 y 429, los timeouts, las respuestas vacías y
+los JSON o esquemas inválidos se traducen a `AiUnavailableError`; los 429 no se
+reintentan.
+
+### Privacidad y datos de estudiantes
+
+El aviso que acompaña al diagnóstico nombra al proveedor real. Con Gemini indica
+que el texto se envía a Google Gemini; con OpenRouter indica que se envía a
+OpenRouter y al proveedor del modelo elegido, e incluye el nombre del modelo.
+
+**No uses material con datos personales de estudiantes.** Los proveedores
+pueden registrar o usar los prompts según su política de datos, y los modelos
+gratuitos suelen tener condiciones más permisivas con el contenido enviado.
+Antes de analizar un material, revisá la política de datos del modelo elegido en
+la ficha de <https://openrouter.ai/models>. Solo se envía el texto extraído
+(no el archivo) y ni el material ni la clave se escriben en los logs.
+
+### Probar el análisis
+
+```bash
+# Usa el proveedor configurado en AI_PROVIDER
+.venv/bin/python scripts/try_ai_analysis.py --pdf documento.pdf
+
+# Fuerza un proveedor y limita el texto enviado
+.venv/bin/python scripts/try_ai_analysis.py --pdf documento.pdf \
+  --provider openrouter --max-chars 300
+```
+
+El script imprime `ai_status`, `ai_notice`, `truncated` y, por cada observación,
+`id`, `source`, `severity`, `block_id`, `excerpt` y `detail`. Nunca imprime la
+clave.
+
 ## Tests
 
 ```bash
@@ -264,21 +343,34 @@ backend/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
 │   │   └── text_processor.py      # Extracción de bloques desde texto plano
 │   ├── scanner/
+│   │   ├── ai_analysis.py         # Análisis semántico con IA y catálogo AI_RULES
 │   │   ├── rules.py               # Reglas automáticas de contenido
 │   │   └── scoring.py             # Puntaje, nivel y resultado por categoría
 │   ├── schemas/
+│   │   ├── ai.py                  # AiStatus, AiAnalysisResult y aviso de privacidad
 │   │   ├── common.py              # ErrorResponse
 │   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
 │   │   ├── diagnosis.py           # Diagnosis, CategoryResult y DiagnosisLevel
 │   │   ├── observation.py         # Observation, Category y Severity
 │   │   └── session.py             # SourceType, SessionStatus, TextInput, SessionResponse
 │   ├── services/
+│   │   ├── ai_provider.py         # Selector de Gemini u OpenRouter
 │   │   ├── content_service.py     # Extracción y resumen de contenido
+│   │   ├── gemini.py              # Cliente de Gemini (StructuredAI)
+│   │   ├── openrouter.py          # Cliente de OpenRouter (StructuredAI)
 │   │   └── session_service.py     # Lógica de sesiones (almacenamiento en memoria)
 │   └── main.py                    # Punto de entrada de FastAPI, CORS y routers
+├── scripts/
+│   ├── inspect_pdf.py             # Bloques detectados en un PDF
+│   ├── preview_rules.py           # Observaciones y puntaje por reglas
+│   └── try_ai_analysis.py         # Reglas + análisis con IA sobre un PDF
 ├── tests/
 │   ├── conftest.py
+│   ├── test_ai_analysis.py
+│   ├── test_ai_provider.py
 │   ├── test_content.py
+│   ├── test_gemini.py
+│   ├── test_openrouter.py
 │   ├── test_pdf_processor.py
 │   ├── test_rules.py
 │   ├── test_scoring.py
