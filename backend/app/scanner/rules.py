@@ -8,7 +8,8 @@ Umbrales
 --------
 Los valores de las constantes son propuestas iniciales. Solo el umbral de 300
 palabras para un párrafo extenso viene del documento del proyecto; el resto
-debe validarse con el equipo de Accesibilidad (BE-10). No son normas.
+son decisiones del equipo a calibrar con Accesibilidad. No son normas. El
+detalle de fuentes y estados está en ``docs/accessibility-criteria.md``.
 
 Límites de las reglas visuales
 ------------------------------
@@ -40,7 +41,7 @@ __all__ = [
     "split_sentences",
 ]
 
-# --- Umbrales (a validar con Accesibilidad) ---
+# --- Umbrales (propuestas del equipo, ver docs/accessibility-criteria.md) ---
 LONG_PARAGRAPH_WORDS_MEDIUM = 150
 LONG_PARAGRAPH_WORDS_HIGH = 300
 LONG_SENTENCE_WORDS_MEDIUM = 30
@@ -72,7 +73,12 @@ _PROTECTED_DOT = "\u2024"  # punto que no debe cortar la oración
 
 @dataclass(frozen=True)
 class Rule:
-    """Metadatos y verificador de una regla automática."""
+    """Metadatos y verificador de una regla automática.
+
+    ``reference`` cita la fuente del criterio o indica que se trata de una
+    decisión del equipo. La documentación completa está en
+    ``docs/accessibility-criteria.md``.
+    """
 
     code: str
     category: Category
@@ -80,6 +86,7 @@ class Rule:
     why_it_matters: str
     recommendation: str
     check: Callable[[ExtractedContent], list[Observation]]
+    reference: str
 
 
 def split_sentences(text: str) -> list[str]:
@@ -386,6 +393,11 @@ RULES: tuple[Rule, ...] = (
         ),
         "Dividir el párrafo en bloques más cortos, con una idea en cada uno.",
         check_long_paragraph,
+        reference=(
+            "Documento del proyecto (300 palabras); decisión del equipo (150 "
+            "palabras). Relacionado: WCAG 2.2 3.1.5 (AAA), ISO 24495-1 y UNE "
+            "153101."
+        ),
     ),
     Rule(
         "long_sentence",
@@ -397,6 +409,10 @@ RULES: tuple[Rule, ...] = (
         ),
         "Reescribir con oraciones más breves, de una idea cada una.",
         check_long_sentences,
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 3.1.5 (AAA) y UNE "
+            "153101."
+        ),
     ),
     Rule(
         "no_headings",
@@ -408,6 +424,10 @@ RULES: tuple[Rule, ...] = (
         ),
         "Organizar el contenido en secciones y ponerles títulos.",
         check_no_headings,
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 1.3.1 (A), 2.4.6 (AA) "
+            "y 2.4.10 (AAA)."
+        ),
     ),
     Rule(
         "heading_skip",
@@ -419,6 +439,10 @@ RULES: tuple[Rule, ...] = (
         ),
         "Usar los niveles de título en orden, sin saltear ninguno.",
         check_heading_skips,
+        reference=(
+            "PDF/UA-1 (ISO 14289-1) 7.4.2, test 1. Relacionado: WCAG 2.2 "
+            "1.3.1 (A) y 2.4.6 (AA)."
+        ),
     ),
     Rule(
         "image_without_alt",
@@ -433,6 +457,10 @@ RULES: tuple[Rule, ...] = (
             "relevante de la imagen."
         ),
         check_images_without_alt,
+        reference=(
+            "WCAG 2.2 1.1.1 Non-text Content (A) y PDF/UA-1 (ISO 14289-1) "
+            "7.3, test 1."
+        ),
     ),
     Rule(
         "image_only_page",
@@ -447,6 +475,10 @@ RULES: tuple[Rule, ...] = (
             "con texto."
         ),
         check_image_only_pages,
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 1.1.1 (A) y 1.4.5 "
+            "Images of Text (AA)."
+        ),
     ),
 )
 

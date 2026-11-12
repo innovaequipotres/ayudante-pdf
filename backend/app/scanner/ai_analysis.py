@@ -56,6 +56,7 @@ class AiRule:
     description: str
     why_it_matters: str
     recommendation: str
+    reference: str
 
 
 # Catálogo cerrado: la IA solo puede reportar estos códigos. Así se descartan
@@ -75,6 +76,10 @@ AI_RULES: tuple[AiRule, ...] = (
             "Reescribir la consigna con un verbo claro, un solo pedido y, si "
             "hace falta, un ejemplo."
         ),
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 3.1.5 Reading Level "
+            "(AAA)."
+        ),
     ),
     AiRule(
         code="undefined_term",
@@ -88,6 +93,10 @@ AI_RULES: tuple[AiRule, ...] = (
         recommendation=(
             "Definir el término la primera vez que aparece o incluirlo en un "
             "glosario."
+        ),
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 3.1.3 Unusual Words "
+            "(AAA) y 3.1.4 Abbreviations (AAA)."
         ),
     ),
     AiRule(
@@ -104,6 +113,10 @@ AI_RULES: tuple[AiRule, ...] = (
         recommendation=(
             "Separar la sección en partes más breves, con títulos y una idea "
             "principal por párrafo."
+        ),
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 3.1.5 Reading Level "
+            "(AAA)."
         ),
     ),
     AiRule(
@@ -122,6 +135,10 @@ AI_RULES: tuple[AiRule, ...] = (
             "Explicar con texto lo que muestra la imagen y agregarle una "
             "descripción alternativa."
         ),
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 1.1.1 Non-text "
+            "Content (A)."
+        ),
     ),
     AiRule(
         code="unclear_sequence",
@@ -137,6 +154,10 @@ AI_RULES: tuple[AiRule, ...] = (
         ),
         recommendation=(
             "Numerar los pasos y empezar cada uno con una acción concreta."
+        ),
+        reference=(
+            "Decisión del equipo. Relacionado: WCAG 2.2 1.3.1 Info and "
+            "Relationships (A)."
         ),
     ),
 )

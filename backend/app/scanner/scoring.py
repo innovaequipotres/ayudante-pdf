@@ -3,7 +3,8 @@
 El puntaje es una suma de penalizaciones por observación: cada regla resta
 según la severidad de sus hallazgos y tiene un tope para que un solo problema
 repetido no opaque el resto del material. La ponderación es una propuesta
-inicial y debe validarse con el equipo de Accesibilidad (BE-10).
+inicial a calibrar con el set de evaluación. El detalle está en
+``docs/accessibility-criteria.md``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ __all__ = [
     "overall_level",
 ]
 
-# --- Ponderación (a validar con Accesibilidad, BE-10) ---
+# --- Ponderación (propuesta a calibrar, ver docs/accessibility-criteria.md) ---
 SEVERITY_PENALTY: dict[Severity, int] = {
     Severity.HIGH: 10,  # barrera
     Severity.MEDIUM: 4,  # para revisar
