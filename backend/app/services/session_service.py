@@ -11,11 +11,13 @@ from uuid import UUID, uuid4
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.schemas.content import ExtractedContent
+from app.schemas.diagnosis import Diagnosis
 from app.schemas.session import SessionResponse, SessionStatus, SourceType, TextInput
 
 _sessions: dict[UUID, SessionResponse] = {}
 _raw_contents: dict[UUID, bytes | str] = {}
 _extracted_contents: dict[UUID, ExtractedContent] = {}
+_diagnoses: dict[UUID, Diagnosis] = {}
 
 
 def _create_session(
@@ -127,3 +129,25 @@ def save_extracted(content: ExtractedContent) -> None:
         update={"status": SessionStatus.EXTRACTED}
     )
     _extracted_contents[content.session_id] = content
+
+
+def get_diagnosis(session_id: UUID) -> Diagnosis | None:
+    """Devuelve el diagnóstico guardado o ``None`` si todavía no se analizó."""
+    return _diagnoses.get(session_id)
+
+
+def save_diagnosis(diagnosis: Diagnosis) -> None:
+    """Guarda el diagnóstico de una sesión en memoria."""
+    get_session(diagnosis.session_id)
+    _diagnoses[diagnosis.session_id] = diagnosis
+
+
+def mark_analyzed(session_id: UUID) -> SessionResponse:
+    """Marca la sesión como ``analyzed`` sin retroceder una ya completada."""
+    session = get_session(session_id)
+    if session.status is SessionStatus.COMPLETED:
+        return session
+
+    updated = session.model_copy(update={"status": SessionStatus.ANALYZED})
+    _sessions[session_id] = updated
+    return updated
