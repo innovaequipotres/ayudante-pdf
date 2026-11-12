@@ -14,6 +14,7 @@ class AiStatus(str, Enum):
 
     OK = "ok"
     UNAVAILABLE = "unavailable"
+    SKIPPED = "skipped"
 
 
 def build_ai_notice(truncated: bool, provider: str = "Google Gemini") -> str:

@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+from app.schemas.ai import AiStatus
 from app.schemas.diagnosis import (
     DIAGNOSIS_CATEGORIES,
     SCORE_DISCLAIMER,
@@ -109,8 +110,16 @@ def category_results(observations: list[Observation]) -> list[CategoryResult]:
 def build_diagnosis(
     session_id: UUID,
     observations: list[Observation],
+    *,
+    ai_status: AiStatus = AiStatus.SKIPPED,
+    ai_notice: str | None = None,
+    ai_truncated: bool = False,
 ) -> Diagnosis:
-    """Arma el diagnóstico completo de una sesión a partir de sus hallazgos."""
+    """Arma el diagnóstico completo de una sesión a partir de sus hallazgos.
+
+    Los parámetros de IA son opcionales para que el puntaje se pueda usar sin
+    análisis semántico. Por defecto el diagnóstico queda como ``skipped``.
+    """
     return Diagnosis(
         session_id=session_id,
         score=calculate_score(observations),
@@ -119,4 +128,7 @@ def build_diagnosis(
         categories=category_results(observations),
         observations=observations,
         created_at=datetime.now(UTC),
+        ai_status=ai_status,
+        ai_notice=ai_notice,
+        ai_truncated=ai_truncated,
     )

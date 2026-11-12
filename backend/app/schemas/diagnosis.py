@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.ai import AiStatus
 from app.schemas.observation import Category, Observation
 
 SCORE_DISCLAIMER = (
@@ -71,3 +72,21 @@ class Diagnosis(BaseModel):
         description="Observaciones detectadas en el material.",
     )
     created_at: datetime = Field(description="Fecha y hora del diagnóstico.")
+    ai_status: AiStatus = Field(
+        default=AiStatus.SKIPPED,
+        description=(
+            "Resultado del análisis con IA: ``ok``, ``unavailable`` o "
+            "``skipped`` cuando no se solicitó."
+        ),
+    )
+    ai_notice: str | None = Field(
+        default=None,
+        description=(
+            "Aviso de privacidad y alcance del análisis con IA. Nulo cuando "
+            "el análisis se omitió."
+        ),
+    )
+    ai_truncated: bool = Field(
+        default=False,
+        description="Indica si la IA analizó solo una parte del material.",
+    )
