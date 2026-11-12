@@ -151,9 +151,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/sessions/<session_id>/extract
 curl http://127.0.0.1:8000/api/v1/sessions/<session_id>/content
 ```
 
-> **Almacenamiento temporal:** por ahora las sesiones y los contenidos extraídos
-> viven en memoria del proceso. Se pierden al reiniciar el servidor y no se
-> comparten entre workers. Más adelante se reemplazarán por una base de datos.
+> **Almacenamiento temporal:** por ahora las sesiones, los contenidos extraídos
+> y los diagnósticos viven en memoria del proceso. Se pierden al reiniciar el
+> servidor y no se comparten entre workers. Más adelante se reemplazarán por una
+> base de datos.
 
 ## Reglas automáticas
 
@@ -301,6 +302,153 @@ El script imprime `ai_status`, `ai_notice`, `truncated` y, por cada observación
 `id`, `source`, `severity`, `block_id`, `excerpt` y `detail`. Nunca imprime la
 clave.
 
+## Diagnóstico
+
+Estos endpoints ejecutan las reglas automáticas, complementan el resultado con
+la IA cuando se solicita, guardan el diagnóstico en memoria y dejan la sesión
+en estado `analyzed`.
+
+| Método | Ruta                                      | Descripción                                                   |
+| ------ | ----------------------------------------- | ------------------------------------------------------------- |
+| `POST` | `/api/v1/sessions/{session_id}/analyze`   | Analiza la sesión. Query `use_ai` (booleano, default `true`). |
+| `GET`  | `/api/v1/sessions/{session_id}/diagnosis` | Devuelve el diagnóstico guardado.                             |
+
+`analyze` extrae el contenido si todavía no se extrajo (reutiliza la lógica de
+`POST /extract`). Los errores de extracción se devuelven tal cual, por ejemplo
+`422 no_extractable_text`, y el estado de la sesión no cambia.
+
+### `use_ai`, reintentos y caché
+
+- `use_ai=false`: solo reglas, `ai_status="skipped"` y `ai_notice=null`. No se
+  consulta a la IA. Si ya hay un diagnóstico `ok` guardado, devuelve el
+  resultado de reglas pero **no lo reemplaza**: el `GET` sigue devolviendo el
+  diagnóstico completo con las observaciones de IA.
+- `use_ai=true` (default) con un diagnóstico `ok` guardado: devuelve el
+  guardado sin volver a consultar a la IA.
+- `use_ai=true` con `unavailable`, `skipped` o sin diagnóstico: consulta a la
+  IA y reemplaza lo guardado. Un resultado `unavailable` se reintenta en la
+  próxima llamada; un `ok` ya no se vuelve a consultar.
+- Si la IA falla, la respuesta sigue siendo `200` con
+  `ai_status="unavailable"` y el diagnóstico por reglas completo. La IA nunca
+  produce un `5xx`.
+
+Las observaciones de reglas y de IA se unen, se ordenan por posición en el
+documento y se deduplican por `id`. Las de IA tienen `source="ai"` y
+`severity="medium"`; cuentan en el puntaje igual que las observaciones de
+reglas.
+
+Hay un lock por sesión: dos `analyze` simultáneos sobre la misma sesión esperan
+y reutilizan el mismo resultado, así que la IA se consulta una sola vez. Se
+registra un log INFO, sin el texto del material, cada vez que se consulta a la
+IA.
+
+### Estados
+
+`uploaded` o `extracted` pasan a `analyzed` al completar el análisis, también
+cuando la IA queda `unavailable`. Una sesión en `completed` nunca retrocede.
+
+### Errores del diagnóstico
+
+| HTTP  | `code`                 | Cuándo                                                      |
+| ----- | ---------------------- | ----------------------------------------------------------- |
+| `404` | `session_not_found`    | La sesión indicada no existe.                               |
+| `409` | `session_not_analyzed` | Se pidió el diagnóstico antes de llamar a `POST /analyze`.  |
+| `422` | `no_extractable_text`  | El material no tiene texto (por ejemplo, un PDF escaneado). |
+| `422` | `invalid_pdf`          | El PDF está dañado o protegido.                             |
+
+Ejemplos:
+
+```bash
+# Solo reglas (sin IA)
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/sessions/<session_id>/analyze?use_ai=false"
+
+# Con IA (default)
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/sessions/<session_id>/analyze"
+
+# Consultar el diagnóstico guardado
+curl.exe "http://127.0.0.1:8000/api/v1/sessions/<session_id>/diagnosis"
+```
+
+Respuesta real de un texto de 180 palabras analizado con `use_ai=false`:
+
+```json
+{
+  "session_id": "8a7277be-937e-429d-9dea-8856ac8b86d9",
+  "score": 96,
+  "level": "review",
+  "disclaimer": "El puntaje es un indicador orientativo. No constituye una certificación formal de accesibilidad.",
+  "categories": [
+    {
+      "category": "comprehension",
+      "severity": "review",
+      "barrier_count": 0,
+      "review_count": 1,
+      "suggestion_count": 0
+    },
+    {
+      "category": "structure",
+      "severity": "ok",
+      "barrier_count": 0,
+      "review_count": 0,
+      "suggestion_count": 0
+    },
+    {
+      "category": "visual",
+      "severity": "ok",
+      "barrier_count": 0,
+      "review_count": 0,
+      "suggestion_count": 0
+    },
+    {
+      "category": "representation",
+      "severity": "ok",
+      "barrier_count": 0,
+      "review_count": 0,
+      "suggestion_count": 0
+    },
+    {
+      "category": "multimedia",
+      "severity": "ok",
+      "barrier_count": 0,
+      "review_count": 0,
+      "suggestion_count": 0
+    },
+    {
+      "category": "navigation",
+      "severity": "ok",
+      "barrier_count": 0,
+      "review_count": 0,
+      "suggestion_count": 0
+    }
+  ],
+  "observations": [
+    {
+      "id": "long_paragraph:b2",
+      "rule_id": "long_paragraph",
+      "category": "comprehension",
+      "severity": "medium",
+      "source": "rule",
+      "title": "Párrafo muy extenso",
+      "detail": "Tiene 180 palabras.",
+      "why_it_matters": "Los bloques de texto largos cansan y dificultan seguir la idea, sobre todo a quienes tienen dificultades de lectura o atención.",
+      "recommendation": "Dividir el párrafo en bloques más cortos, con una idea en cada uno.",
+      "block_id": "b2",
+      "page": null,
+      "excerpt": "Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno dos tres. Uno…"
+    }
+  ],
+  "created_at": "2026-11-12T02:37:46.685329Z",
+  "ai_status": "skipped",
+  "ai_notice": null,
+  "ai_truncated": false
+}
+```
+
+Con la IA completa, `ai_status` es `"ok"`, `ai_notice` trae el aviso de
+privacidad y `ai_truncated` indica si se analizó solo una parte del material.
+Cuando la IA falla, `ai_status` es `"unavailable"` y `ai_notice` explica que el
+diagnóstico por reglas sigue disponible.
+
 ## Tests
 
 ```bash
@@ -335,6 +483,7 @@ backend/
 │   │   └── v1/
 │   │       └── endpoints/
 │   │           ├── content.py     # Endpoints de contenido
+│   │           ├── diagnosis.py   # Endpoints del diagnóstico
 │   │           └── sessions.py    # Endpoints de sesiones
 │   ├── core/
 │   │   ├── config.py              # Configuración y variables de entorno
@@ -355,6 +504,7 @@ backend/
 │   │   └── session.py             # SourceType, SessionStatus, TextInput, SessionResponse
 │   ├── services/
 │   │   ├── ai_provider.py         # Selector de Gemini u OpenRouter
+│   │   ├── analysis_service.py    # Diagnóstico, caché de IA y estados
 │   │   ├── content_service.py     # Extracción y resumen de contenido
 │   │   ├── gemini.py              # Cliente de Gemini (StructuredAI)
 │   │   ├── openrouter.py          # Cliente de OpenRouter (StructuredAI)
@@ -369,6 +519,7 @@ backend/
 │   ├── test_ai_analysis.py
 │   ├── test_ai_provider.py
 │   ├── test_content.py
+│   ├── test_diagnosis.py
 │   ├── test_gemini.py
 │   ├── test_openrouter.py
 │   ├── test_pdf_processor.py
