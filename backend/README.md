@@ -4,6 +4,10 @@ Backend de la aplicación **Ayudante PDF**, construido con **FastAPI**. Expone l
 procesa documentos PDF y se integra con **Google Gemini** u **OpenRouter** para el
 análisis semántico con IA.
 
+El contrato de la API para el frontend (rutas, modelos, ejemplos de respuesta y
+guía para mocks) está en [`docs/api-contract.md`](../docs/api-contract.md). La
+fuente de verdad es `/openapi.json`.
+
 ## Requisitos
 
 - **Python 3.11** (ver `.python-version`)
