@@ -456,6 +456,38 @@ privacidad y `ai_truncated` indica si se analizó solo una parte del material.
 Cuando la IA falla, `ai_status` es `"unavailable"` y `ai_notice` explica que el
 diagnóstico por reglas sigue disponible.
 
+## Adaptación de barreras
+
+`POST /api/v1/adaptations` recibe una barrera y devuelve una versión adaptada
+del texto. Es **stateless**: no usa sesiones ni guarda el resultado. Usa el
+proveedor configurado en `AI_PROVIDER`.
+
+| Método | Ruta                  | Descripción                                    |
+| ------ | --------------------- | ---------------------------------------------- |
+| `POST` | `/api/v1/adaptations` | Genera `adapted_text` a partir de una barrera. |
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/adaptations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "simplify",
+    "rule_id": "long_paragraph",
+    "original_text": "Texto de prueba con varias oraciones. Esta es la segunda. Esta es la tercera. Esta es la cuarta.",
+    "title": "Párrafo muy extenso",
+    "recommendation": "Dividir el párrafo en bloques más cortos."
+  }' | jq
+```
+
+- `type`: `simplify`, `clarify`, `describe`, `alt_text` o `sequence`.
+- `original_text`: obligatorio, máximo 8.000 caracteres.
+- `rule_id` es opcional y solo enriquece el prompt. `no_headings` y
+  `heading_skip` se rechazan con `422 observation_not_adaptable`.
+- Si la IA falla, la respuesta sigue siendo `200`: `simplify` con 4+ oraciones
+  y más de 120 palabras se divide en párrafos (`source="local"`); el resto
+  devuelve `adapted_text=null` y la recomendación en `notes`.
+- `alt_text` no analiza la imagen: describe con el texto cercano y lo aclara en
+  `notes`. Si supera 250 caracteres, se reintenta y después se recorta.
+
 ## Tests
 
 ```bash
@@ -489,6 +521,7 @@ backend/
 │   ├── api/
 │   │   └── v1/
 │   │       └── endpoints/
+│   │           ├── adaptations.py # Endpoint de adaptación de barreras
 │   │           ├── content.py     # Endpoints de contenido
 │   │           ├── diagnosis.py   # Endpoints del diagnóstico
 │   │           └── sessions.py    # Endpoints de sesiones
@@ -499,10 +532,12 @@ backend/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
 │   │   └── text_processor.py      # Extracción de bloques desde texto plano
 │   ├── scanner/
+│   │   ├── adaptation.py          # Motor de adaptación con IA y fallback local
 │   │   ├── ai_analysis.py         # Análisis semántico con IA y catálogo AI_RULES
 │   │   ├── rules.py               # Reglas automáticas de contenido
 │   │   └── scoring.py             # Puntaje, nivel y resultado por categoría
 │   ├── schemas/
+│   │   ├── adaptation.py          # AdaptationType, AdaptationRequest y Adaptation
 │   │   ├── ai.py                  # AiStatus, AiAnalysisResult y aviso de privacidad
 │   │   ├── common.py              # ErrorResponse
 │   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
@@ -523,6 +558,8 @@ backend/
 │   └── try_ai_analysis.py         # Reglas + análisis con IA sobre un PDF
 ├── tests/
 │   ├── conftest.py
+│   ├── test_adaptation.py
+│   ├── test_adaptations_api.py
 │   ├── test_ai_analysis.py
 │   ├── test_ai_provider.py
 │   ├── test_content.py
