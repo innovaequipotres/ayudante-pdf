@@ -41,18 +41,16 @@ los mocks sin adivinar nombres ni formatos.
 | Persistencia      | **En memoria**: se pierde al reiniciar el servidor              |
 | Proveedor de IA   | Gemini por defecto; OpenRouter opcional (no afecta el contrato) |
 
-`/openapi.json` ya incluye las 7 rutas de negocio, los modelos y los errores
+`/openapi.json` ya incluye las 8 rutas de negocio, los modelos y los errores
 declarados. **No incluye ejemplos de respuesta**: los ejemplos de este
 documento se capturaron ejecutando la API real.
 
 ### Lo que todavía no forma parte del contrato
 
-- **`AdaptationType` / tipo de adaptación:** el término está acordado con el
-  frontend, pero todavía no existe en el backend ni en `/openapi.json`. Se
-  incorporará cuando se implemente la issue correspondiente.
 - Autenticación, usuarios y permisos.
-- Persistencia en base de datos e historial entre reinicios.
-- Endpoints de exportación o de aplicación de adaptaciones.
+- Persistencia en base de datos e historial entre reinicios, también para las
+  adaptaciones: `POST /api/v1/adaptations` es stateless.
+- Endpoints de exportación o de aplicación de las adaptaciones generadas.
 
 ## 2. Flujo de la API
 
@@ -75,7 +73,16 @@ GET  /api/v1/sessions/{session_id}/diagnosis
               │  200 · diagnóstico guardado
               ▼
         Frontend / mocks
+
+POST /api/v1/adaptations   (stateless: no usa sesión)
+              │
+              │  200 · Adaptation
+              ▼
+        Frontend / mocks
 ```
+
+La adaptación es independiente del flujo de sesiones: recibe una barrera y
+devuelve el texto reescrito, sin persistir nada.
 
 | Estado      | Cuándo se alcanza                                     |
 | ----------- | ----------------------------------------------------- |
@@ -119,7 +126,8 @@ GET  /api/v1/sessions/{session_id}/diagnosis
 | Descripción        | `title` + `detail`              | `title` es obligatorio; `detail` puede ser `null`.              |
 | Por qué importa    | `why_it_matters`                | Texto explicativo obligatorio.                                  |
 | Recomendación      | `recommendation`                | Texto explicativo obligatorio.                                  |
-| Tipo de adaptación | `AdaptationType`                | **Pendiente:** todavía no existe en la API.                     |
+| Tipo de adaptación | `AdaptationType`                | `simplify`, `clarify`, `describe`, `alt_text`, `sequence`.      |
+| Adaptación         | `Adaptation`                    | Texto adaptado de una barrera; no se persiste.                  |
 
 ### Las dos escalas de nivel
 
@@ -225,6 +233,47 @@ Equivalencias:
 
 No forman parte del flujo de negocio, pero aparecen en `/openapi.json`.
 
+### 5.9 `POST /api/v1/adaptations`
+
+Genera una versión adaptada de una barrera. Es **stateless**: no recibe
+`session_id` ni guarda el resultado.
+
+- **Request:** `Content-Type: application/json` con
+  [`AdaptationRequest`](#adaptationrequest).
+- **Response `200`:** [`Adaptation`](#adaptation).
+- **Errores:** `422 text_too_long`, `422 observation_not_adaptable`,
+  `422 unknown_rule` y `422 VALIDATION_ERROR` si el body no cumple el schema.
+
+`type` es obligatorio y manda. `rule_id` es opcional y solo enriquece el
+prompt; si se envía, se valida contra el catálogo de reglas.
+
+| `rule_id`               | `type`                                     |
+| ----------------------- | ------------------------------------------ |
+| `long_paragraph`        | `simplify`                                 |
+| `long_sentence`         | `simplify`                                 |
+| `dense_section`         | `simplify`                                 |
+| `undefined_term`        | `simplify`                                 |
+| `ambiguous_instruction` | `clarify`                                  |
+| `visual_reference`      | `describe`                                 |
+| `image_only_page`       | `describe`                                 |
+| `image_without_alt`     | `alt_text`                                 |
+| `unclear_sequence`      | `sequence`                                 |
+| `no_headings`           | no adaptable (`observation_not_adaptable`) |
+| `heading_skip`          | no adaptable (`observation_not_adaptable`) |
+
+`adapted_text` es texto plano: no incluye HTML ni Markdown y separa los
+párrafos con `\n\n`. El endpoint nunca devuelve `5xx` por un fallo de la IA:
+
+| Caso                                                         | `source` | `ai_status`   | `adapted_text`                    |
+| ------------------------------------------------------------ | -------- | ------------- | --------------------------------- |
+| La IA responde                                               | `ai`     | `ok`          | texto adaptado                    |
+| IA caída y `simplify` con 4+ oraciones y más de 120 palabras | `local`  | `unavailable` | texto dividido en párrafos        |
+| IA caída, resto de tipos                                     | `null`   | `unavailable` | `null` + recomendación en `notes` |
+| Salida vacía, idéntica al original o con HTML tras reintento | `null`   | `unavailable` | `null`                            |
+
+El fallback local solo divide el texto en párrafos; no lo reescribe. Para
+`alt_text`, `notes` siempre aclara que no se analizó la imagen.
+
 ## 6. Modelos
 
 ### `SessionResponse`
@@ -324,6 +373,36 @@ No forman parte del flujo de negocio, pero aparecen en `/openapi.json`.
 | `ai_notice`    | `string`                | Sí   | Aviso de privacidad; `null` cuando `ai_status="skipped"`. |
 | `ai_truncated` | `boolean`               | No   | `true` si la IA analizó solo una parte del material.      |
 
+### `AdaptationRequest`
+
+| Campo            | Tipo             | Requerido | Restricciones                                       |
+| ---------------- | ---------------- | --------- | --------------------------------------------------- |
+| `type`           | `AdaptationType` | Sí        | Tipo de adaptación pedida.                          |
+| `original_text`  | `string`         | Sí        | No puede quedar vacío; máximo 8.000 caracteres.     |
+| `rule_id`        | `string`         | No        | Código del catálogo; enriquece el prompt.           |
+| `category`       | `Category`       | No        | Dimensión de accesibilidad de la barrera.           |
+| `title`          | `string`         | No        | Máximo 200 caracteres.                              |
+| `detail`         | `string`         | No        | Máximo 500 caracteres.                              |
+| `recommendation` | `string`         | No        | Máximo 500 caracteres.                              |
+| `context_before` | `string`         | No        | Texto anterior al bloque; máximo 1.000 caracteres.  |
+| `context_after`  | `string`         | No        | Texto posterior al bloque; máximo 1.000 caracteres. |
+
+### `Adaptation`
+
+| Campo           | Tipo                    | Nulo | Descripción                                                  |
+| --------------- | ----------------------- | ---- | ------------------------------------------------------------ |
+| `id`            | `string` (UUID v4)      | No   | Identificador único de la adaptación.                        |
+| `type`          | `AdaptationType`        | No   | Tipo de adaptación aplicado.                                 |
+| `rule_id`       | `string`                | Sí   | Regla que originó la barrera.                                |
+| `original_text` | `string`                | No   | Texto recibido, normalizado.                                 |
+| `adapted_text`  | `string`                | Sí   | Texto plano adaptado; `null` si no se pudo generar.          |
+| `notes`         | `string`                | Sí   | Qué se hizo, limitaciones o recomendación manual (máx. 500). |
+| `source`        | `AdaptationSource`      | Sí   | `ai` o `local`; `null` si no hubo adaptación.                |
+| `ai_status`     | `AiStatus`              | No   | `ok` o `unavailable` (no se usa `skipped`).                  |
+| `ai_notice`     | `string`                | Sí   | Aviso de privacidad y alcance del uso de la IA.              |
+| `provider`      | `string`                | Sí   | Nombre visible del proveedor usado o intentado.              |
+| `created_at`    | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                           |
+
 ### `ErrorResponse`
 
 | Campo     | Tipo     | Nulo | Descripción                                   |
@@ -343,6 +422,8 @@ No forman parte del flujo de negocio, pero aparecen en `/openapi.json`.
 | `ObservationSource` | `rule`, `ai`                                                                         |
 | `DiagnosisLevel`    | `ok`, `review`, `barrier`                                                            |
 | `AiStatus`          | `ok`, `unavailable`, `skipped`                                                       |
+| `AdaptationType`    | `simplify`, `clarify`, `describe`, `alt_text`, `sequence`                            |
+| `AdaptationSource`  | `ai`, `local`                                                                        |
 
 ### Nulabilidad resumida
 
@@ -353,7 +434,9 @@ Pueden ser `null`:
 `ContentBlock.text`, `ContentBlock.level`, `ContentBlock.items`,
 `ContentBlock.alt_text`, `ContentBlock.width`, `ContentBlock.height`,
 `Observation.detail`, `Observation.block_id`, `Observation.page`,
-`Observation.excerpt`, `Diagnosis.ai_notice`.
+`Observation.excerpt`, `Diagnosis.ai_notice`, `Adaptation.rule_id`,
+`Adaptation.adapted_text`, `Adaptation.notes`, `Adaptation.source`,
+`Adaptation.ai_notice`, `Adaptation.provider`.
 
 No son `null` (aunque el array esté vacío): `categories`, `observations`,
 `blocks`, `items` cuando el bloque es una lista, `summary`.
@@ -756,41 +839,108 @@ Response `404`:
 }
 ```
 
+### 7.9 Adaptación con IA disponible (`source="ai"`)
+
+Response `200` de `POST /api/v1/adaptations`:
+
+```json
+{
+  "id": "0f6f2f3e-9a3b-4a1e-9c3d-2b7f1a5c8d41",
+  "type": "simplify",
+  "rule_id": "long_paragraph",
+  "original_text": "La célula es la unidad básica de la vida. Todas las células cumplen funciones esenciales. Estas funciones incluyen la nutrición y la reproducción. Además, permiten mantener el organismo.",
+  "adapted_text": "La célula es la unidad básica de la vida.\n\nTodas las células cumplen funciones esenciales, como la nutrición y la reproducción.",
+  "notes": "Se dividió el párrafo y se acortaron las oraciones.",
+  "source": "ai",
+  "ai_status": "ok",
+  "ai_notice": "El análisis con IA envía el texto del material a Google Gemini. No se envía el archivo, solo el texto extraído.",
+  "provider": "Google Gemini",
+  "created_at": "2026-11-14T18:20:00.123456Z"
+}
+```
+
+### 7.10 Adaptación con fallback local (`source="local"`)
+
+Con la IA caída, `simplify` divide el texto sin reescribirlo:
+
+```json
+{
+  "id": "4b8d1c22-5e6f-4f0a-8d3e-7c9a2b1f6e55",
+  "type": "simplify",
+  "rule_id": "long_paragraph",
+  "original_text": "Primera oración del párrafo. Segunda oración del párrafo. Tercera oración del párrafo. Cuarta oración del párrafo.",
+  "adapted_text": "Primera oración del párrafo. Segunda oración del párrafo.\n\nTercera oración del párrafo. Cuarta oración del párrafo.",
+  "notes": "Se dividió el texto automáticamente sin IA. Revisá el resultado antes de aplicarlo.",
+  "source": "local",
+  "ai_status": "unavailable",
+  "ai_notice": "El análisis con IA envía el texto del material a Google Gemini. No se envía el archivo, solo el texto extraído. No se pudo generar la adaptación; se muestra la recomendación para hacerlo a mano.",
+  "provider": "Google Gemini",
+  "created_at": "2026-11-14T18:21:00.654321Z"
+}
+```
+
+### 7.11 Adaptación con IA no disponible (`source=null`)
+
+Para tipos sin fallback, la respuesta sigue siendo `200` y devuelve la
+recomendación para hacerlo a mano:
+
+```json
+{
+  "id": "9c2e7a10-3d4b-4c5f-9e8a-1b2c3d4e5f60",
+  "type": "clarify",
+  "rule_id": "ambiguous_instruction",
+  "original_text": "Resolvé el ejercicio según lo indicado.",
+  "adapted_text": null,
+  "notes": "Reescribir la consigna con un verbo claro, un solo pedido y, si hace falta, un ejemplo.",
+  "source": null,
+  "ai_status": "unavailable",
+  "ai_notice": "El análisis con IA envía el texto del material a Google Gemini. No se envía el archivo, solo el texto extraído. No se pudo generar la adaptación; se muestra la recomendación para hacerlo a mano.",
+  "provider": "Google Gemini",
+  "created_at": "2026-11-14T18:22:00.111111Z"
+}
+```
+
 ## 8. Catálogo de errores
 
 Todas las respuestas de error tienen la forma
 [`ErrorResponse`](#errorresponse): `{ "code": "...", "message": "..." }`.
 
-| HTTP  | `code`                  | Cuándo                                                      |
-| ----- | ----------------------- | ----------------------------------------------------------- |
-| `400` | `empty_content`         | Archivo vacío, o texto vacío/solo espacios.                 |
-| `400` | `invalid_pdf`           | El archivo no empieza con la firma `%PDF`.                  |
-| `404` | `session_not_found`     | La sesión indicada no existe.                               |
-| `409` | `content_not_extracted` | Se pidió el contenido antes de `POST /extract`.             |
-| `409` | `session_not_analyzed`  | Se pidió el diagnóstico antes de `POST /analyze`.           |
-| `413` | `file_too_large`        | El archivo supera `MAX_UPLOAD_MB` (25 MB por defecto).      |
-| `415` | `unsupported_format`    | La extensión del archivo no es `.pdf`.                      |
-| `422` | `no_extractable_text`   | El material no tiene texto (por ejemplo, un PDF escaneado). |
-| `422` | `invalid_pdf`           | El PDF está dañado o protegido (al extraer o analizar).     |
-| `422` | `VALIDATION_ERROR`      | Body, query o UUID inválido. `message` detalla el campo.    |
-| `404` | `HTTP_404`              | Ruta inexistente.                                           |
-| `405` | `HTTP_405`              | Método no permitido para la ruta.                           |
-| `500` | `INTERNAL_ERROR`        | Error inesperado del servidor.                              |
+| HTTP  | `code`                      | Cuándo                                                        |
+| ----- | --------------------------- | ------------------------------------------------------------- |
+| `400` | `empty_content`             | Archivo vacío, o texto vacío/solo espacios.                   |
+| `400` | `invalid_pdf`               | El archivo no empieza con la firma `%PDF`.                    |
+| `404` | `session_not_found`         | La sesión indicada no existe.                                 |
+| `409` | `content_not_extracted`     | Se pidió el contenido antes de `POST /extract`.               |
+| `409` | `session_not_analyzed`      | Se pidió el diagnóstico antes de `POST /analyze`.             |
+| `413` | `file_too_large`            | El archivo supera `MAX_UPLOAD_MB` (25 MB por defecto).        |
+| `415` | `unsupported_format`        | La extensión del archivo no es `.pdf`.                        |
+| `422` | `no_extractable_text`       | El material no tiene texto (por ejemplo, un PDF escaneado).   |
+| `422` | `text_too_long`             | `original_text` supera los 8.000 caracteres.                  |
+| `422` | `observation_not_adaptable` | La regla no se puede adaptar (`no_headings`, `heading_skip`). |
+| `422` | `unknown_rule`              | El `rule_id` no existe en el catálogo de reglas.              |
+| `422` | `invalid_pdf`               | El PDF está dañado o protegido (al extraer o analizar).       |
+| `422` | `VALIDATION_ERROR`          | Body, query o UUID inválido. `message` detalla el campo.      |
+| `404` | `HTTP_404`                  | Ruta inexistente.                                             |
+| `405` | `HTTP_405`                  | Método no permitido para la ruta.                             |
+| `500` | `INTERNAL_ERROR`            | Error inesperado del servidor.                                |
 
 Mensajes actuales de los errores de aplicación:
 
-| `code`                  | `message`                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------ |
-| `empty_content` (file)  | `El archivo está vacío.`                                                                   |
-| `empty_content` (text)  | `El texto no puede estar vacío.`                                                           |
-| `invalid_pdf` (upload)  | `El archivo no es un PDF válido.`                                                          |
-| `invalid_pdf` (extract) | `No se pudo leer el PDF. Puede estar dañado o protegido.`                                  |
-| `file_too_large`        | `El archivo supera el límite de 25 MB permitido.`                                          |
-| `unsupported_format`    | `Por ahora solo se aceptan archivos PDF.`                                                  |
-| `session_not_found`     | `La sesión solicitada no existe.`                                                          |
-| `content_not_extracted` | `El contenido todavía no fue extraído.`                                                    |
-| `session_not_analyzed`  | `La sesión todavía no fue analizada.`                                                      |
-| `no_extractable_text`   | `No se encontró texto en el material. Si es un PDF escaneado, no se puede leer por ahora.` |
+| `code`                      | `message`                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `empty_content` (file)      | `El archivo está vacío.`                                                                   |
+| `empty_content` (text)      | `El texto no puede estar vacío.`                                                           |
+| `invalid_pdf` (upload)      | `El archivo no es un PDF válido.`                                                          |
+| `invalid_pdf` (extract)     | `No se pudo leer el PDF. Puede estar dañado o protegido.`                                  |
+| `file_too_large`            | `El archivo supera el límite de 25 MB permitido.`                                          |
+| `unsupported_format`        | `Por ahora solo se aceptan archivos PDF.`                                                  |
+| `session_not_found`         | `La sesión solicitada no existe.`                                                          |
+| `content_not_extracted`     | `El contenido todavía no fue extraído.`                                                    |
+| `session_not_analyzed`      | `La sesión todavía no fue analizada.`                                                      |
+| `no_extractable_text`       | `No se encontró texto en el material. Si es un PDF escaneado, no se puede leer por ahora.` |
+| `text_too_long`             | `El texto a adaptar supera el límite de 8.000 caracteres.`                                 |
+| `observation_not_adaptable` | `La barrera indicada no se puede adaptar automáticamente.`                                 |
+| `unknown_rule`              | `La regla indicada no existe en el catálogo.`                                              |
 
 > No ramificar por `message`: usar siempre `code`. Los mensajes pueden cambiar.
 
@@ -815,6 +965,11 @@ curl -s -X POST "$BASE/sessions/$SESSION_ID/analyze?use_ai=false" | jq
 
 # 4. Consultar el diagnóstico guardado
 curl -s "$BASE/sessions/$SESSION_ID/diagnosis" | jq
+
+# 5. Adaptar una barrera (stateless, no requiere sesión)
+curl -s -X POST "$BASE/adaptations" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"simplify","rule_id":"long_paragraph","original_text":"Primera oración. Segunda oración. Tercera oración. Cuarta oración."}' | jq
 ```
 
 Para un PDF:
@@ -885,7 +1040,7 @@ Verificación rápida de que `/openapi.json` está completo:
 curl -s http://127.0.0.1:8000/openapi.json | jq '.paths | keys'
 ```
 
-Debe listar las 7 rutas de negocio más `/` y `/health`.
+Debe listar las 8 rutas de negocio más `/` y `/health`.
 
 ## 11. Cambios de contrato
 
@@ -893,5 +1048,5 @@ Debe listar las 7 rutas de negocio más `/` y `/health`.
   frontend en la issue o el PR correspondiente.
 - Este documento y `/openapi.json` se actualizan en el mismo cambio.
 - Los cambios incompatibles no se hacen sin coordinación previa.
-- **Pendiente conocido:** `AdaptationType` todavía no existe. Cuando se agregue,
-  se documentará acá y aparecerá en `/openapi.json`.
+- `AdaptationType` y `Adaptation` ya forman parte del contrato (BE-13) y
+  aparecen en `/openapi.json`.
