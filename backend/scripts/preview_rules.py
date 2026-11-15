@@ -31,11 +31,11 @@ from app.services.content_service import build_content
 def _build_content(pdf: Path | None, text: str | None) -> ExtractedContent:
     """Extrae y enriquece el contenido como lo hace el servicio."""
     if pdf is not None:
-        blocks, page_count = extract_from_pdf(pdf.read_bytes())
+        blocks, page_count, pages = extract_from_pdf(pdf.read_bytes())
         source_type = SourceType.PDF
         filename = pdf.name
     else:
-        blocks, page_count = extract_from_text(text or ""), None
+        blocks, page_count, pages = extract_from_text(text or ""), None, []
         source_type = SourceType.TEXT
         filename = "Texto pegado"
 
@@ -46,7 +46,7 @@ def _build_content(pdf: Path | None, text: str | None) -> ExtractedContent:
         status=SessionStatus.UPLOADED,
         created_at=datetime.now(UTC),
     )
-    return build_content(session, blocks, page_count)
+    return build_content(session, blocks, page_count, pages)
 
 
 def main() -> int:

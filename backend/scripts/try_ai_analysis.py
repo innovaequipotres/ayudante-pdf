@@ -30,7 +30,7 @@ def _build_content(pdf: Path):  # type: ignore[no-untyped-def]
     from app.schemas.session import SessionResponse, SessionStatus, SourceType
     from app.services.content_service import build_content
 
-    blocks, page_count = extract_from_pdf(pdf.read_bytes())
+    blocks, page_count, pages = extract_from_pdf(pdf.read_bytes())
     session = SessionResponse(
         session_id=uuid4(),
         source_type=SourceType.PDF,
@@ -38,7 +38,7 @@ def _build_content(pdf: Path):  # type: ignore[no-untyped-def]
         status=SessionStatus.UPLOADED,
         created_at=datetime.now(UTC),
     )
-    return build_content(session, blocks, page_count)
+    return build_content(session, blocks, page_count, pages)
 
 
 def main() -> int:
