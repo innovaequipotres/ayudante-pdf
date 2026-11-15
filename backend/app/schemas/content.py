@@ -17,6 +17,29 @@ class BlockType(str, Enum):
     IMAGE = "image"
 
 
+class BBox(BaseModel):
+    """Rectángulo de un bloque en coordenadas de la página.
+
+    Los valores están en puntos PDF (72 por pulgada) con el origen arriba a la
+    izquierda, igual que los devuelve ``pdfplumber``. No se valida que estén
+    dentro de la página: un texto rotado o fuera de margen puede dar valores
+    negativos.
+    """
+
+    x0: float = Field(description="Borde izquierdo del rectángulo.")
+    top: float = Field(description="Borde superior del rectángulo.")
+    x1: float = Field(description="Borde derecho del rectángulo.")
+    bottom: float = Field(description="Borde inferior del rectángulo.")
+
+
+class PageSize(BaseModel):
+    """Tamaño visible de una página del PDF, en puntos."""
+
+    page: int = Field(ge=1, description="Número de página (empieza en 1).")
+    width: float = Field(ge=0, description="Ancho de la página en puntos.")
+    height: float = Field(ge=0, description="Alto de la página en puntos.")
+
+
 class ContentBlock(BaseModel):
     """Unidad de contenido extraída de un documento.
 
@@ -74,6 +97,13 @@ class ContentBlock(BaseModel):
         ge=0,
         description="Alto en puntos; solo se usa en imágenes.",
     )
+    bbox: BBox | None = Field(
+        default=None,
+        description=(
+            "Rectángulo del bloque en puntos PDF, con origen arriba-izquierda. "
+            "Nulo en texto pegado."
+        ),
+    )
 
 
 class ContentSummary(BaseModel):
@@ -109,6 +139,10 @@ class ExtractedContent(BaseModel):
         default=None,
         ge=1,
         description="Cantidad de páginas del PDF; nulo para texto pegado.",
+    )
+    pages: list[PageSize] = Field(
+        default_factory=list,
+        description="Tamaño de cada página del PDF; vacío en texto pegado.",
     )
     summary: ContentSummary = Field(description="Resumen cuantitativo del contenido.")
     blocks: list[ContentBlock] = Field(

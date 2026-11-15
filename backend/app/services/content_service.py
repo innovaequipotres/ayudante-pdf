@@ -18,6 +18,7 @@ from app.schemas.content import (
     ContentBlock,
     ContentSummary,
     ExtractedContent,
+    PageSize,
 )
 from app.schemas.session import SessionResponse, SourceType
 from app.services import session_service
@@ -68,6 +69,7 @@ def build_content(
     session: SessionResponse,
     blocks: list[ContentBlock],
     page_count: int | None,
+    pages: list[PageSize] | None = None,
 ) -> ExtractedContent:
     """Completa los bloques y construye el contenido extraído de una sesión.
 
@@ -75,9 +77,10 @@ def build_content(
         session: Sesión de origen.
         blocks: Bloques crudos devueltos por el procesador.
         page_count: Cantidad de páginas del PDF, o ``None`` para texto.
+        pages: Tamaño de cada página del PDF; vacío o ``None`` para texto.
 
     Returns:
-        El contenido con identificadores, conteos y resumen.
+        El contenido con identificadores, conteos, resumen y geometría.
 
     Raises:
         AppError: Si el material no tiene palabras extraíbles.
@@ -126,6 +129,7 @@ def build_content(
         source_type=session.source_type,
         title=_content_title(session, enriched_blocks),
         page_count=page_count,
+        pages=list(pages or []),
         summary=summary,
         blocks=enriched_blocks,
     )
@@ -147,12 +151,13 @@ def extract(session_id: UUID) -> ExtractedContent:
     raw_content = session_service.get_raw_content(session_id)
 
     if session.source_type is SourceType.PDF:
-        blocks, page_count = extract_from_pdf(cast(bytes, raw_content))
+        blocks, page_count, pages = extract_from_pdf(cast(bytes, raw_content))
     else:
         blocks = extract_from_text(cast(str, raw_content))
         page_count = None
+        pages = []
 
-    content = build_content(session, blocks, page_count)
+    content = build_content(session, blocks, page_count, pages)
     session_service.save_extracted(content)
     return content
 

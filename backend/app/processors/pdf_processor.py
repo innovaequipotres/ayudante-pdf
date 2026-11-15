@@ -30,6 +30,10 @@ Limitaciones conocidas
   niveles profundos a los títulos de sección.
 - **Negrita:** se detecta por la presencia de ``bold`` en el nombre de la
   fuente. Fuentes como ``Black`` o ``Heavy`` no se consideran negrita.
+- **Coordenadas:** ``bbox`` y ``pages`` usan puntos PDF (72 por pulgada) con el
+  origen arriba a la izquierda, tal como los devuelve ``pdfplumber``. En PDFs
+  con columnas o tablas, el ``bbox`` agrupa las líneas en el orden de lectura
+  detectado y puede no coincidir con el orden visual.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ import pdfplumber
 from pdfplumber.utils.exceptions import MalformedPDFException, PdfminerException
 
 from app.core.exceptions import AppError
-from app.schemas.content import BlockType, ContentBlock
+from app.schemas.content import BBox, BlockType, ContentBlock, PageSize
 
 __all__ = ["BULLET_RE", "extract_from_pdf"]
 
@@ -88,6 +92,7 @@ class _Line:
 
     text: str
     x0: float
+    x1: float
     top: float
     bottom: float
     size: int
@@ -114,6 +119,8 @@ class _PageContent:
     page_number: int
     lines: list[_Line]
     images: list[_Image]
+    width: float
+    height: float
 
 
 @dataclass
@@ -122,6 +129,10 @@ class _OpenBlock:
 
     kind: str
     page: int
+    x0: float
+    x1: float
+    top: float
+    bottom: float
     last_bottom: float
     last_size: int = 0
     level: int | None = None
@@ -129,25 +140,43 @@ class _OpenBlock:
     items: list[str] = field(default_factory=list)
     item_x0: float = 0.0
 
+    def extend(self, line: _Line) -> None:
+        """Suma una línea al rectángulo del bloque."""
+        self.x0 = min(self.x0, line.x0)
+        self.x1 = max(self.x1, line.x1)
+        self.top = min(self.top, line.top)
+        self.bottom = max(self.bottom, line.bottom)
+        self.last_bottom = line.bottom
+        self.last_size = line.size
+
     def to_content_block(self) -> ContentBlock:
         """Convierte el bloque abierto en el modelo público."""
+        bbox = BBox(
+            x0=round(self.x0, 1),
+            top=round(self.top, 1),
+            x1=round(self.x1, 1),
+            bottom=round(self.bottom, 1),
+        )
         if self.kind == "heading":
             return ContentBlock(
                 type=BlockType.HEADING,
                 page=self.page,
                 text=self.text,
                 level=self.level,
+                bbox=bbox,
             )
         if self.kind == "list":
             return ContentBlock(
                 type=BlockType.LIST,
                 page=self.page,
                 items=list(self.items),
+                bbox=bbox,
             )
         return ContentBlock(
             type=BlockType.PARAGRAPH,
             page=self.page,
             text=self.text,
+            bbox=bbox,
         )
 
 
@@ -233,6 +262,7 @@ def _read_page(
             _Line(
                 text=text,
                 x0=float(raw_line["x0"]),
+                x1=float(raw_line["x1"]),
                 top=float(raw_line["top"]),
                 bottom=float(raw_line["bottom"]),
                 size=int(median(sizes) + 0.5),
@@ -245,6 +275,8 @@ def _read_page(
         page_number=page_number,
         lines=lines,
         images=_read_images(page),
+        width=float(page.width or 0.0),
+        height=float(page.height or 0.0),
     )
 
 
@@ -314,6 +346,12 @@ def _image_block(page_number: int, image: _Image) -> ContentBlock:
         page=page_number,
         width=round(image.width, 1),
         height=round(image.height, 1),
+        bbox=BBox(
+            x0=round(image.x0, 1),
+            top=round(image.top, 1),
+            x1=round(image.x0 + image.width, 1),
+            bottom=round(image.top + image.height, 1),
+        ),
     )
 
 
@@ -349,13 +387,16 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
                 <= _HEADING_GAP_FACTOR * max(current.last_size, line.size)
             ):
                 current.text = f"{current.text} {line.text}"
-                current.last_bottom = line.bottom
-                current.last_size = line.size
+                current.extend(line)
             else:
                 flush()
                 current = _OpenBlock(
                     kind="heading",
                     page=page.page_number,
+                    x0=line.x0,
+                    x1=line.x1,
+                    top=line.top,
+                    bottom=line.bottom,
                     last_bottom=line.bottom,
                     last_size=line.size,
                     level=line.heading_level,
@@ -365,13 +406,16 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
             if current is not None and current.kind == "list":
                 current.items.append(line.list_item)
                 current.item_x0 = line.x0
-                current.last_bottom = line.bottom
-                current.last_size = line.size
+                current.extend(line)
             else:
                 flush()
                 current = _OpenBlock(
                     kind="list",
                     page=page.page_number,
+                    x0=line.x0,
+                    x1=line.x1,
+                    top=line.top,
+                    bottom=line.bottom,
                     last_bottom=line.bottom,
                     last_size=line.size,
                     items=[line.list_item],
@@ -392,17 +436,19 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
 
             if is_list_continuation:
                 current.items[-1] = f"{current.items[-1]} {line.text}"
-                current.last_bottom = line.bottom
-                current.last_size = line.size
+                current.extend(line)
             elif is_paragraph_continuation:
                 current.text = f"{current.text} {line.text}"
-                current.last_bottom = line.bottom
-                current.last_size = line.size
+                current.extend(line)
             else:
                 flush()
                 current = _OpenBlock(
                     kind="paragraph",
                     page=page.page_number,
+                    x0=line.x0,
+                    x1=line.x1,
+                    top=line.top,
+                    bottom=line.bottom,
                     last_bottom=line.bottom,
                     last_size=line.size,
                     text=line.text,
@@ -417,16 +463,20 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
     return blocks
 
 
-def extract_from_pdf(content: bytes) -> tuple[list[ContentBlock], int]:
-    """Extrae los bloques de contenido y la cantidad de páginas de un PDF.
+def extract_from_pdf(
+    content: bytes,
+) -> tuple[list[ContentBlock], int, list[PageSize]]:
+    """Extrae los bloques, la cantidad de páginas y sus tamaños de un PDF.
 
     Args:
         content: Contenido binario del archivo PDF.
 
     Returns:
-        Una tupla ``(blocks, page_count)``. Los bloques están en orden de
-        lectura y la cantidad de páginas es la del documento. Si no hay texto,
-        se devuelve ``([], page_count)``.
+        Una tupla ``(blocks, page_count, pages)``. Los bloques están en orden
+        de lectura, cada uno con su ``bbox`` en coordenadas de página, y
+        ``pages`` trae el tamaño visible de cada página. Si no hay texto, se
+        devuelve ``([], page_count, pages)``: un PDF escaneado igual tiene
+        páginas con tamaño.
 
     Raises:
         AppError: Si el PDF no se puede abrir porque está dañado o protegido.
@@ -434,7 +484,7 @@ def extract_from_pdf(content: bytes) -> tuple[list[ContentBlock], int]:
     try:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             page_count = len(pdf.pages)
-            pages = [
+            page_contents = [
                 _read_page(page, page_number, page_count)
                 for page_number, page in enumerate(pdf.pages, start=1)
             ]
@@ -451,9 +501,18 @@ def extract_from_pdf(content: bytes) -> tuple[list[ContentBlock], int]:
             status_code=422,
         ) from exc
 
-    all_lines = [line for page in pages for line in page.lines]
+    pages = [
+        PageSize(
+            page=page.page_number,
+            width=round(page.width, 1),
+            height=round(page.height, 1),
+        )
+        for page in page_contents
+    ]
+
+    all_lines = [line for page in page_contents for line in page.lines]
     if not all_lines:
-        return [], page_count
+        return [], page_count, pages
 
     body_size = _body_font_size(all_lines)
     bold_ratio = sum(line.bold for line in all_lines) / len(all_lines)
@@ -469,7 +528,7 @@ def extract_from_pdf(content: bytes) -> tuple[list[ContentBlock], int]:
         )
 
     blocks: list[ContentBlock] = []
-    for page in pages:
+    for page in page_contents:
         blocks.extend(_group_page(page, body_size))
 
-    return blocks, page_count
+    return blocks, page_count, pages

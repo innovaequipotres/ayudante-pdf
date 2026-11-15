@@ -337,7 +337,7 @@ def test_pdf_without_text_returns_unprocessable_and_keeps_status(
     monkeypatch.setattr(
         content_service,
         "extract_from_pdf",
-        lambda content: ([], 1),
+        lambda content: ([], 1, []),
     )
 
     response = client.post(_analyze_url(session["session_id"], use_ai=False))

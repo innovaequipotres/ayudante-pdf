@@ -23,13 +23,22 @@ from app.schemas.content import BlockType, ContentBlock
 def _format_block(index: int, block: ContentBlock) -> str:
     prefix = f"{index:03d}. [p.{block.page}]"
     if block.type == BlockType.HEADING:
-        return f"{prefix} H{block.level}: {block.text}"
-    if block.type == BlockType.PARAGRAPH:
-        return f"{prefix} P: {block.text}"
-    if block.type == BlockType.LIST:
+        line = f"{prefix} H{block.level}: {block.text}"
+    elif block.type == BlockType.PARAGRAPH:
+        line = f"{prefix} P: {block.text}"
+    elif block.type == BlockType.LIST:
         items = "\n".join(f"      - {item}" for item in (block.items or []))
-        return f"{prefix} LISTA:\n{items}"
-    return f"{prefix} IMAGEN: {block.width} x {block.height} pt"
+        line = f"{prefix} LISTA:\n{items}"
+    else:
+        line = f"{prefix} IMAGEN: {block.width} x {block.height} pt"
+
+    if block.bbox is not None:
+        bbox = block.bbox
+        line += (
+            f" [x0={bbox.x0}, top={bbox.top}, "
+            f"x1={bbox.x1}, bottom={bbox.bottom}]"
+        )
+    return line
 
 
 def main() -> int:
@@ -46,7 +55,7 @@ def main() -> int:
         return 1
 
     try:
-        blocks, page_count = extract_from_pdf(content)
+        blocks, page_count, _ = extract_from_pdf(content)
     except AppError as exc:
         print(f"Error {exc.code} ({exc.status_code}): {exc.message}")
         return 1
