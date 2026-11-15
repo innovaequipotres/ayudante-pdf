@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.schemas.content import BlockType, ContentBlock
+from app.schemas.content import BBox, BlockType, ContentBlock, PageSize
 from app.services import content_service
 
 API_PREFIX = "/api/v1/sessions"
@@ -147,7 +147,7 @@ def test_pdf_without_text_returns_unprocessable(
     monkeypatch.setattr(
         content_service,
         "extract_from_pdf",
-        lambda content: ([], 1),
+        lambda content: ([], 1, []),
     )
 
     response = client.post(f"{API_PREFIX}/{session['session_id']}/extract")
@@ -184,7 +184,11 @@ def test_pdf_content_counts_images_without_alt(
     monkeypatch.setattr(
         content_service,
         "extract_from_pdf",
-        lambda content: (blocks, 3),
+        lambda content: (
+            blocks,
+            3,
+            [PageSize(page=1, width=595.0, height=842.0)],
+        ),
     )
 
     response = client.post(f"{API_PREFIX}/{session['session_id']}/extract")
@@ -206,3 +210,68 @@ def test_pdf_content_counts_images_without_alt(
 
     stored = client.get(f"{API_PREFIX}/{session['session_id']}").json()
     assert stored["status"] == "extracted"
+
+
+def test_pdf_content_includes_pages_and_bbox(
+    client: TestClient,
+    pdf_content: bytes,
+    monkeypatch,
+) -> None:
+    session = _create_pdf_session(client, pdf_content)
+    blocks = [
+        ContentBlock(
+            type=BlockType.HEADING,
+            text="Sección",
+            level=1,
+            page=1,
+            bbox=BBox(x0=72.0, top=58.4, x1=310.5, bottom=86.9),
+        ),
+        ContentBlock(
+            type=BlockType.IMAGE,
+            page=2,
+            width=100.0,
+            height=50.0,
+            bbox=BBox(x0=72.0, top=220.0, x1=172.0, bottom=270.0),
+        ),
+    ]
+    pages = [
+        PageSize(page=1, width=595.3, height=841.9),
+        PageSize(page=2, width=595.3, height=841.9),
+    ]
+    monkeypatch.setattr(
+        content_service,
+        "extract_from_pdf",
+        lambda content: (blocks, 2, pages),
+    )
+
+    response = client.post(f"{API_PREFIX}/{session['session_id']}/extract")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["page_count"] == 2
+    assert body["pages"] == [
+        {"page": 1, "width": 595.3, "height": 841.9},
+        {"page": 2, "width": 595.3, "height": 841.9},
+    ]
+    assert [block["id"] for block in body["blocks"]] == ["b1", "b2"]
+    assert body["blocks"][0]["bbox"] == {
+        "x0": 72.0,
+        "top": 58.4,
+        "x1": 310.5,
+        "bottom": 86.9,
+    }
+    assert body["blocks"][1]["bbox"] == {
+        "x0": 72.0,
+        "top": 220.0,
+        "x1": 172.0,
+        "bottom": 270.0,
+    }
+
+
+def test_text_content_has_no_pages_or_bbox(client: TestClient) -> None:
+    session = _create_text_session(client)
+
+    body = client.post(f"{API_PREFIX}/{session['session_id']}/extract").json()
+
+    assert body["pages"] == []
+    assert all(block["bbox"] is None for block in body["blocks"])

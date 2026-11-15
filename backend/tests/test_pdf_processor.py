@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from app.core.exceptions import AppError
 from app.processors import pdf_processor
 from app.processors.pdf_processor import BULLET_RE, extract_from_pdf
-from app.schemas.content import BlockType, ContentBlock
+from app.schemas.content import BBox, BlockType, ContentBlock, PageSize
 
 
 class _FakePage:
@@ -21,9 +21,13 @@ class _FakePage:
         self,
         lines: list[dict[str, Any]],
         images: list[dict[str, Any]] | None = None,
+        width: float = 595.0,
+        height: float = 842.0,
     ) -> None:
         self._lines = lines
         self.images = images or []
+        self.width = width
+        self.height = height
 
     def extract_text_lines(self) -> list[dict[str, Any]]:
         return self._lines
@@ -49,13 +53,17 @@ def _line(
     size: float = 12,
     bold: bool = False,
     x0: float = 72.0,
+    x1: float | None = None,
 ) -> dict[str, Any]:
     """Construye una línea con los campos que devuelve pdfplumber."""
     fontname = "Helvetica-Bold" if bold else "Helvetica"
     chars = [{"fontname": fontname, "size": size} for _ in text]
+    if x1 is None:
+        x1 = x0 + 0.5 * size * len(text)
     return {
         "text": text,
         "x0": x0,
+        "x1": x1,
         "top": top,
         "bottom": top + size,
         "chars": chars,
@@ -111,9 +119,10 @@ def test_extract_from_pdf_detects_all_block_types(
     )
     install_fake_pdf([page_one, page_two])
 
-    blocks, page_count = extract_from_pdf(b"ignored")
+    blocks, page_count, pages = extract_from_pdf(b"ignored")
 
     assert page_count == 2
+    assert [page.page for page in pages] == [1, 2]
     assert [block.type for block in blocks] == [
         BlockType.HEADING,
         BlockType.PARAGRAPH,
@@ -204,7 +213,7 @@ def test_merges_consecutive_headings_of_same_level(
         ]
     )
 
-    blocks, _ = extract_from_pdf(b"ignored")
+    blocks, _, _ = extract_from_pdf(b"ignored")
 
     headings = [block for block in blocks if block.type == BlockType.HEADING]
     assert len(headings) == 1
@@ -220,7 +229,7 @@ def test_paragraphs_do_not_merge_across_pages(install_fake_pdf) -> None:
         ]
     )
 
-    blocks, _ = extract_from_pdf(b"ignored")
+    blocks, _, _ = extract_from_pdf(b"ignored")
 
     paragraphs = [block for block in blocks if block.type == BlockType.PARAGRAPH]
     assert [paragraph.text for paragraph in paragraphs] == [
@@ -278,7 +287,7 @@ def test_page_number_lines_are_removed(
 ) -> None:
     install_fake_pdf([_FakePage([_line(text, top=20, size=9)])])
 
-    blocks, page_count = extract_from_pdf(b"ignored")
+    blocks, page_count, _ = extract_from_pdf(b"ignored")
 
     assert blocks == []
     assert page_count == 1
@@ -298,7 +307,7 @@ def test_standalone_number_from_another_page_is_kept(
         ]
     )
 
-    blocks, _ = extract_from_pdf(b"ignored")
+    blocks, _, _ = extract_from_pdf(b"ignored")
 
     assert any(
         block.type == BlockType.PARAGRAPH and block.text == "2" for block in blocks
@@ -315,10 +324,152 @@ def test_pdf_without_text_returns_empty_list(install_fake_pdf) -> None:
         ]
     )
 
-    blocks, page_count = extract_from_pdf(b"ignored")
+    blocks, page_count, pages = extract_from_pdf(b"ignored")
 
     assert blocks == []
     assert page_count == 1
+    assert pages == [PageSize(page=1, width=595.0, height=842.0)]
+
+
+def test_blocks_include_bbox_union_of_lines(install_fake_pdf) -> None:
+    install_fake_pdf(
+        [
+            _FakePage(
+                lines=[
+                    _line("Primera línea", top=100, x0=72.0, x1=200.5),
+                    _line("Segunda línea", top=114, x0=80.0, x1=260.36),
+                    _line(
+                        "Otra línea de cuerpo para fijar el tamaño",
+                        top=140,
+                    ),
+                ]
+            )
+        ]
+    )
+
+    blocks, _, _ = extract_from_pdf(b"ignored")
+
+    paragraph = blocks[0]
+    assert paragraph.text == "Primera línea Segunda línea"
+    assert paragraph.bbox == BBox(
+        x0=72.0,
+        top=100.0,
+        x1=260.4,
+        bottom=126.0,
+    )
+
+
+def test_heading_and_list_include_bbox(install_fake_pdf) -> None:
+    install_fake_pdf(
+        [
+            _FakePage(
+                lines=[
+                    _line("Título", top=60, size=24, bold=True, x1=180.4),
+                    _line("partido", top=90, size=24, bold=True, x1=200.2),
+                    _line("• Uno", top=140, x1=120.3),
+                    _line("• Dos", top=154, x1=130.6),
+                    _line("continuación", top=168, x0=90, x1=250.9),
+                    _line(
+                        "Cuerpo suficiente para dominar el tamaño doce",
+                        top=200,
+                    ),
+                ]
+            )
+        ]
+    )
+
+    blocks, _, _ = extract_from_pdf(b"ignored")
+
+    headings = [block for block in blocks if block.type == BlockType.HEADING]
+    lists = [block for block in blocks if block.type == BlockType.LIST]
+
+    assert len(headings) == 1
+    assert headings[0].text == "Título partido"
+    assert headings[0].bbox == BBox(
+        x0=72.0,
+        top=60.0,
+        x1=200.2,
+        bottom=114.0,
+    )
+
+    assert len(lists) == 1
+    assert lists[0].items == ["Uno", "Dos continuación"]
+    assert lists[0].bbox == BBox(
+        x0=72.0,
+        top=140.0,
+        x1=250.9,
+        bottom=180.0,
+    )
+
+
+def test_image_block_bbox_matches_rectangle(install_fake_pdf) -> None:
+    install_fake_pdf(
+        [
+            _FakePage(
+                lines=[_line("Texto", top=60)],
+                images=[
+                    {"top": 220, "x0": 72, "width": 100.04, "height": 50.06}
+                ],
+            )
+        ]
+    )
+
+    blocks, _, _ = extract_from_pdf(b"ignored")
+
+    image = next(block for block in blocks if block.type == BlockType.IMAGE)
+    assert image.bbox == BBox(
+        x0=72.0,
+        top=220.0,
+        x1=172.0,
+        bottom=270.1,
+    )
+
+
+def test_extract_from_pdf_returns_page_sizes(install_fake_pdf) -> None:
+    install_fake_pdf(
+        [
+            _FakePage([_line("Primera", top=60)], width=595.3, height=841.9),
+            _FakePage([_line("Segunda", top=60)], width=612.0, height=792.0),
+        ]
+    )
+
+    _, page_count, pages = extract_from_pdf(b"ignored")
+
+    assert page_count == 2
+    assert pages == [
+        PageSize(page=1, width=595.3, height=841.9),
+        PageSize(page=2, width=612.0, height=792.0),
+    ]
+
+
+def test_pdf_without_text_still_returns_page_sizes(install_fake_pdf) -> None:
+    install_fake_pdf([_FakePage(lines=[], width=500.0, height=700.0)])
+
+    blocks, page_count, pages = extract_from_pdf(b"ignored")
+
+    assert blocks == []
+    assert page_count == 1
+    assert pages == [PageSize(page=1, width=500.0, height=700.0)]
+
+
+def test_discarded_page_number_is_not_in_bbox(install_fake_pdf) -> None:
+    install_fake_pdf(
+        [
+            _FakePage(
+                [
+                    _line("1", top=20, size=9),
+                    _line("Texto del párrafo", top=60),
+                ]
+            )
+        ]
+    )
+
+    blocks, _, _ = extract_from_pdf(b"ignored")
+
+    assert len(blocks) == 1
+    assert blocks[0].text == "Texto del párrafo"
+    assert blocks[0].bbox is not None
+    assert blocks[0].bbox.top == 60.0
 
 
 @pytest.mark.parametrize(
@@ -369,6 +520,7 @@ def test_content_block_defaults() -> None:
     assert block.alt_text is None
     assert block.width is None
     assert block.height is None
+    assert block.bbox is None
 
 
 @pytest.mark.parametrize("level", [0, 7])
