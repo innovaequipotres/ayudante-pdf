@@ -136,6 +136,12 @@ El primer `POST` procesa el material. Si se repite, devuelve el contenido
 guardado sin volver a procesarlo. Un `GET` antes de la extracción responde
 `409 content_not_extracted`.
 
+En PDFs, `GET /content` devuelve `pages` (tamaño de cada página) y un `bbox`
+por bloque, ambos en puntos PDF (72 por pulgada) con origen arriba-izquierda.
+En texto pegado, `pages=[]` y `bbox=null`. El backend no renderiza el PDF: el
+frontend convierte a coordenadas de pdf.js con
+`top_js = page.height - bbox.bottom`.
+
 Errores propios de estos endpoints:
 
 | HTTP  | `code`                  | Cuándo                                                      |

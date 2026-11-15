@@ -110,6 +110,9 @@ devuelve el texto reescrito, sin persistir nada.
   - `Diagnosis.observations`: ordenadas por página y por posición del bloque en
     el documento.
   - `ExtractedContent.blocks`: orden de lectura.
+- **Geometría:** `ExtractedContent.pages` y `ContentBlock.bbox` están en puntos
+  PDF (72 por pulgada), con origen arriba-izquierda. El frontend debe invertir
+  el eje Y para pdf.js (`top_js = page.height - bbox.bottom`).
 - **Arrays vacíos:** `observations` puede ser `[]`; no es un error.
 - **Sin paginación:** todas las respuestas devuelven el recurso completo.
 
@@ -302,6 +305,7 @@ El fallback local solo divide el texto en párrafos; no lo reescribe. Para
 | `source_type` | `SourceType`     | No   | `pdf` o `text`.                                                     |
 | `title`       | `string`         | Sí   | En texto, el título de la sesión; en PDF, el título de menor nivel. |
 | `page_count`  | `integer`        | Sí   | Páginas del PDF; `null` para texto.                                 |
+| `pages`       | `PageSize[]`     | No   | Tamaño de cada página del PDF; `[]` en texto pegado.                |
 | `summary`     | `ContentSummary` | No   | Conteos del material.                                               |
 | `blocks`      | `ContentBlock[]` | No   | Bloques en orden de lectura.                                        |
 
@@ -319,6 +323,39 @@ El fallback local solo divide el texto en párrafos; no lo reescribe. Para
 | `alt_text`   | `string`    | Sí   | Texto alternativo de la imagen. En PDFs hoy siempre es `null`. |
 | `width`      | `number`    | Sí   | Ancho en puntos; solo en imágenes.                             |
 | `height`     | `number`    | Sí   | Alto en puntos; solo en imágenes.                              |
+| `bbox`       | `BBox`      | Sí   | Rectángulo del bloque en puntos; `null` en texto pegado.       |
+
+### `BBox`
+
+Rectángulo de un bloque sobre la página del PDF.
+
+| Campo    | Tipo     | Nulo | Descripción                     |
+| -------- | -------- | ---- | ------------------------------- |
+| `x0`     | `number` | No   | Borde izquierdo, en puntos PDF. |
+| `top`    | `number` | No   | Borde superior, en puntos PDF.  |
+| `x1`     | `number` | No   | Borde derecho, en puntos PDF.   |
+| `bottom` | `number` | No   | Borde inferior, en puntos PDF.  |
+
+Las coordenadas están en **puntos PDF** (72 por pulgada), con el origen
+**arriba-izquierda**, igual que las devuelve `pdfplumber`. Se redondean a un
+decimal. El backend no renderiza el PDF: si el frontend usa pdf.js, que trabaja
+con origen abajo-izquierda, tiene que convertir el eje Y con
+`top_js = page.height - bbox.bottom` (y `bottom_js = page.height - bbox.top`).
+
+En títulos, párrafos y listas el rectángulo es la unión de las líneas que
+forman el bloque. En imágenes es el rectángulo de la imagen. Puede haber
+valores levemente negativos o fuera de página si el texto está rotado o
+desbordado; no se recorta.
+
+### `PageSize`
+
+Tamaño visible de una página del PDF.
+
+| Campo    | Tipo      | Nulo | Descripción                                |
+| -------- | --------- | ---- | ------------------------------------------ |
+| `page`   | `integer` | No   | Número de página, desde 1.                 |
+| `width`  | `number`  | No   | Ancho visible de la página, en puntos PDF. |
+| `height` | `number`  | No   | Alto visible de la página, en puntos PDF.  |
 
 ### `ContentSummary`
 
@@ -433,13 +470,14 @@ Pueden ser `null`:
 `ExtractedContent.title`, `ExtractedContent.page_count`, `ContentBlock.page`,
 `ContentBlock.text`, `ContentBlock.level`, `ContentBlock.items`,
 `ContentBlock.alt_text`, `ContentBlock.width`, `ContentBlock.height`,
+`ContentBlock.bbox`,
 `Observation.detail`, `Observation.block_id`, `Observation.page`,
 `Observation.excerpt`, `Diagnosis.ai_notice`, `Adaptation.rule_id`,
 `Adaptation.adapted_text`, `Adaptation.notes`, `Adaptation.source`,
 `Adaptation.ai_notice`, `Adaptation.provider`.
 
-No son `null` (aunque el array esté vacío): `categories`, `observations`,
-`blocks`, `items` cuando el bloque es una lista, `summary`.
+No son `null` (aunque el array esté vacío): `pages`, `categories`,
+`observations`, `blocks`, `items` cuando el bloque es una lista, `summary`.
 
 ## 7. Ejemplos de respuesta
 
@@ -500,6 +538,7 @@ Response `200` de `POST /extract` o de `GET /content`:
   "source_type": "text",
   "title": "Biología",
   "page_count": null,
+  "pages": [],
   "summary": {
     "word_count": 15,
     "heading_count": 1,
@@ -519,7 +558,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "word_count": 2,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": null
     },
     {
       "id": "b2",
@@ -531,7 +571,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "word_count": 9,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": null
     },
     {
       "id": "b3",
@@ -543,7 +584,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "word_count": 2,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": null
     },
     {
       "id": "b4",
@@ -555,7 +597,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "word_count": 2,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": null
     }
   ]
 }
@@ -565,7 +608,8 @@ Response `200` de `POST /extract` o de `GET /content`:
 
 Ejemplo del mismo PDF de 7.2. **Se omitieron los bloques `b2` a `b5` y `b7`
 para abreviar**; la respuesta real los incluye todos. Sirve para ver `page`,
-imágenes, `alt_text`, `width`, `height`, `page_count` y `images_without_alt`.
+imágenes, `alt_text`, `width`, `height`, `pages`, `bbox`, `page_count` y
+`images_without_alt`.
 
 ```json
 {
@@ -573,6 +617,10 @@ imágenes, `alt_text`, `width`, `height`, `page_count` y `images_without_alt`.
   "source_type": "pdf",
   "title": null,
   "page_count": 2,
+  "pages": [
+    { "page": 1, "width": 595.3, "height": 841.9 },
+    { "page": 2, "width": 595.3, "height": 841.9 }
+  ],
   "summary": {
     "word_count": 537,
     "heading_count": 0,
@@ -592,7 +640,8 @@ imágenes, `alt_text`, `width`, `height`, `page_count` y `images_without_alt`.
       "word_count": 6,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": { "x0": 57.0, "top": 53.4, "x1": 257.4, "bottom": 63.4 }
     },
     {
       "id": "b6",
@@ -604,7 +653,8 @@ imágenes, `alt_text`, `width`, `height`, `page_count` y `images_without_alt`.
       "word_count": 0,
       "alt_text": null,
       "width": 209.8,
-      "height": 141.7
+      "height": 141.7,
+      "bbox": { "x0": 192.8, "top": 51.4, "x1": 402.5, "bottom": 193.1 }
     },
     {
       "id": "b8",
@@ -616,7 +666,8 @@ imágenes, `alt_text`, `width`, `height`, `page_count` y `images_without_alt`.
       "word_count": 12,
       "alt_text": null,
       "width": null,
-      "height": null
+      "height": null,
+      "bbox": { "x0": 57.0, "top": 346.9, "x1": 402.7, "bottom": 356.9 }
     }
   ]
 }
@@ -990,9 +1041,10 @@ curl -s -X POST "$BASE/sessions/file" \
 5. **Severidad:** no mezclar escalas. Una observación nunca lleva `ok`; un
    diagnóstico nunca lleva `high`.
 6. **Texto vs. PDF:**
-   - Texto: `page_count=null`, `page=null` en todos los bloques y
-     observaciones, `images_without_alt=0`.
-   - PDF: `page` empieza en 1; `alt_text` es `null`; `width`/`height` en puntos.
+   - Texto: `page_count=null`, `pages=[]`, `page=null` y `bbox=null` en todos
+     los bloques y observaciones, `images_without_alt=0`.
+   - PDF: `page` empieza en 1; `alt_text` es `null`; `width`/`height` y `bbox`
+     en puntos PDF; `pages` trae el tamaño de cada página.
 7. **IA:** `ai_notice` es `null` solo con `ai_status="skipped"`. El aviso real
    nombra al proveedor configurado.
 8. **Errores:** siempre `{code, message}`; los `code` de aplicación van en
