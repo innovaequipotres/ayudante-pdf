@@ -494,6 +494,40 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/adaptations \
 - `alt_text` no analiza la imagen: describe con el texto cercano y lo aclara en
   `notes`. Si supera 250 caracteres, se reintenta y después se recorta.
 
+## Exportación del PDF adaptado
+
+`POST /api/v1/sessions/{session_id}/export` recibe los textos finales por bloque
+y devuelve el PDF original con una capa visual de reemplazo. Es **stateless**:
+no guarda los textos ni cambia el estado de la sesión.
+
+| Método | Ruta                                   | Descripción                                       |
+| ------ | -------------------------------------- | ------------------------------------------------- |
+| `POST` | `/api/v1/sessions/{session_id}/export` | Devuelve `application/pdf` con los textos nuevos. |
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/sessions/<session_id>/export \
+  -H "Content-Type: application/json" \
+  -d '{"edits":[{"block_id":"b1","text":"Texto final del bloque."}]}' \
+  -D headers.txt -o documento_adaptado.pdf
+```
+
+- Solo funciona con sesiones PDF que ya tengan el contenido extraído.
+- Cada `block_id` debe existir, tener `page` y `bbox`, y no repetirse.
+- El texto se dibuja con `Helvetica` (o `Helvetica-Bold` en títulos) y usa
+  `ContentBlock.font_size` como tamaño inicial. Si no entra, se reduce hasta
+  6 pt y después se recorta con `…`.
+- En imágenes, el texto va como leyenda en la franja inferior del bloque.
+- La respuesta incluye `Content-Disposition` con fallback
+  `filename="documento-adaptado.pdf"` y `filename*` UTF-8.
+- Errores: `404 session_not_found`, `409 content_not_extracted`,
+  `409 export_unavailable`, `422 unknown_block`, `422 block_without_bbox`,
+  `422 duplicate_block_id`, `422 empty_text`, `422 text_too_long` y
+  `422 invalid_pdf`.
+
+> **Limitación:** el texto original sigue en la capa de texto del PDF. El
+> reemplazo es visual, así que copiar/pegar o un lector de pantalla pueden ver
+> ambos textos. La redacción real queda para una issue aparte.
+
 ## Tests
 
 ```bash
@@ -530,6 +564,7 @@ backend/
 │   │           ├── adaptations.py # Endpoint de adaptación de barreras
 │   │           ├── content.py     # Endpoints de contenido
 │   │           ├── diagnosis.py   # Endpoints del diagnóstico
+│   │           ├── export.py      # Exportación del PDF adaptado
 │   │           └── sessions.py    # Endpoints de sesiones
 │   ├── core/
 │   │   ├── config.py              # Configuración y variables de entorno
@@ -548,12 +583,14 @@ backend/
 │   │   ├── common.py              # ErrorResponse
 │   │   ├── content.py             # ContentBlock, ContentSummary, ExtractedContent
 │   │   ├── diagnosis.py           # Diagnosis, CategoryResult y DiagnosisLevel
+│   │   ├── export.py              # ExportRequest y ExportEdit
 │   │   ├── observation.py         # Observation, Category y Severity
 │   │   └── session.py             # SourceType, SessionStatus, TextInput, SessionResponse
 │   ├── services/
 │   │   ├── ai_provider.py         # Selector de Gemini u OpenRouter
 │   │   ├── analysis_service.py    # Diagnóstico, caché de IA y estados
 │   │   ├── content_service.py     # Extracción y resumen de contenido
+│   │   ├── export_service.py      # Capa de reemplazo y fusión del PDF
 │   │   ├── gemini.py              # Cliente de Gemini (StructuredAI)
 │   │   ├── openrouter.py          # Cliente de OpenRouter (StructuredAI)
 │   │   └── session_service.py     # Lógica de sesiones (almacenamiento en memoria)
@@ -570,6 +607,8 @@ backend/
 │   ├── test_ai_provider.py
 │   ├── test_content.py
 │   ├── test_diagnosis.py
+│   ├── test_export.py
+│   ├── test_export_api.py
 │   ├── test_gemini.py
 │   ├── test_openrouter.py
 │   ├── test_pdf_processor.py
