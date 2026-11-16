@@ -351,12 +351,27 @@ def test_blocks_include_bbox_union_of_lines(install_fake_pdf) -> None:
 
     paragraph = blocks[0]
     assert paragraph.text == "Primera línea Segunda línea"
+    assert paragraph.font_size == 12.0
     assert paragraph.bbox == BBox(
         x0=72.0,
         top=100.0,
         x1=260.4,
         bottom=126.0,
     )
+
+
+def test_block_font_size_is_median_of_char_sizes(install_fake_pdf) -> None:
+    line = _line("Texto", top=100)
+    line["chars"] = [
+        {"fontname": "Helvetica", "size": 10.0},
+        {"fontname": "Helvetica", "size": 12.0},
+        {"fontname": "Helvetica", "size": 14.0},
+    ]
+    install_fake_pdf([_FakePage(lines=[line])])
+
+    blocks, _, _ = extract_from_pdf(b"ignored")
+
+    assert blocks[0].font_size == 12.0
 
 
 def test_heading_and_list_include_bbox(install_fake_pdf) -> None:
@@ -385,6 +400,7 @@ def test_heading_and_list_include_bbox(install_fake_pdf) -> None:
 
     assert len(headings) == 1
     assert headings[0].text == "Título partido"
+    assert headings[0].font_size == 24.0
     assert headings[0].bbox == BBox(
         x0=72.0,
         top=60.0,
@@ -394,6 +410,7 @@ def test_heading_and_list_include_bbox(install_fake_pdf) -> None:
 
     assert len(lists) == 1
     assert lists[0].items == ["Uno", "Dos continuación"]
+    assert lists[0].font_size == 12.0
     assert lists[0].bbox == BBox(
         x0=72.0,
         top=140.0,
@@ -417,6 +434,7 @@ def test_image_block_bbox_matches_rectangle(install_fake_pdf) -> None:
     blocks, _, _ = extract_from_pdf(b"ignored")
 
     image = next(block for block in blocks if block.type == BlockType.IMAGE)
+    assert image.font_size is None
     assert image.bbox == BBox(
         x0=72.0,
         top=220.0,

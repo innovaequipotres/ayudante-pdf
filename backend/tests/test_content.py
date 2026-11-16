@@ -225,6 +225,7 @@ def test_pdf_content_includes_pages_and_bbox(
             level=1,
             page=1,
             bbox=BBox(x0=72.0, top=58.4, x1=310.5, bottom=86.9),
+            font_size=18.5,
         ),
         ContentBlock(
             type=BlockType.IMAGE,
@@ -254,6 +255,7 @@ def test_pdf_content_includes_pages_and_bbox(
         {"page": 2, "width": 595.3, "height": 841.9},
     ]
     assert [block["id"] for block in body["blocks"]] == ["b1", "b2"]
+    assert body["blocks"][0]["font_size"] == 18.5
     assert body["blocks"][0]["bbox"] == {
         "x0": 72.0,
         "top": 58.4,
@@ -275,3 +277,4 @@ def test_text_content_has_no_pages_or_bbox(client: TestClient) -> None:
 
     assert body["pages"] == []
     assert all(block["bbox"] is None for block in body["blocks"])
+    assert all(block["font_size"] is None for block in body["blocks"])
