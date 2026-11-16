@@ -104,6 +104,14 @@ class ContentBlock(BaseModel):
             "Nulo en texto pegado."
         ),
     )
+    font_size: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Tamaño mediano de los caracteres del bloque en puntos. "
+            "Nulo en texto pegado y en imágenes."
+        ),
+    )
 
 
 class ContentSummary(BaseModel):

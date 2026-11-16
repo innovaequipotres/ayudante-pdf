@@ -8,8 +8,8 @@ los mocks sin adivinar nombres ni formatos.
   FastAPI a partir de los schemas de Pydantic).
 - **Documentación interactiva:** `GET /docs`.
 - **Todos los nombres de campos, rutas y valores de enum están en inglés.**
-- **Alcance:** issues BE-02 a BE-09 (sesiones, contenido, reglas, puntaje,
-  diagnóstico y análisis con IA).
+- **Alcance:** issues BE-02 a BE-15 (sesiones, contenido, reglas, puntaje,
+  diagnóstico, análisis con IA, adaptación y exportación).
 
 > Cualquier cambio de nombre, tipo, valor de enum o ruta se avisa al frontend y
 > se refleja primero en este documento y en `/openapi.json`.
@@ -35,13 +35,13 @@ los mocks sin adivinar nombres ni formatos.
 | Base URL local    | `http://127.0.0.1:8000`                                         |
 | Prefijo de la API | `/api/v1`                                                       |
 | Autenticación     | Ninguna todavía                                                 |
-| Formato           | JSON UTF-8 (`application/json`)                                 |
+| Formato           | JSON UTF-8 (`application/json`); la exportación devuelve PDF    |
 | OpenAPI           | `http://127.0.0.1:8000/openapi.json`                            |
 | Documentación     | `http://127.0.0.1:8000/docs`                                    |
 | Persistencia      | **En memoria**: se pierde al reiniciar el servidor              |
 | Proveedor de IA   | Gemini por defecto; OpenRouter opcional (no afecta el contrato) |
 
-`/openapi.json` ya incluye las 8 rutas de negocio, los modelos y los errores
+`/openapi.json` ya incluye las 9 rutas de negocio, los modelos y los errores
 declarados. **No incluye ejemplos de respuesta**: los ejemplos de este
 documento se capturaron ejecutando la API real.
 
@@ -49,8 +49,8 @@ documento se capturaron ejecutando la API real.
 
 - Autenticación, usuarios y permisos.
 - Persistencia en base de datos e historial entre reinicios, también para las
-  adaptaciones: `POST /api/v1/adaptations` es stateless.
-- Endpoints de exportación o de aplicación de las adaptaciones generadas.
+  adaptaciones y la exportación: `POST /api/v1/adaptations` y
+  `POST /api/v1/sessions/{session_id}/export` son stateless.
 
 ## 2. Flujo de la API
 
@@ -78,11 +78,17 @@ POST /api/v1/adaptations   (stateless: no usa sesión)
               │
               │  200 · Adaptation
               ▼
+POST /api/v1/sessions/{session_id}/export   (stateless)
+              │
+              │  200 · application/pdf · la sesión no cambia de estado
+              ▼
         Frontend / mocks
 ```
 
 La adaptación es independiente del flujo de sesiones: recibe una barrera y
-devuelve el texto reescrito, sin persistir nada.
+devuelve el texto reescrito, sin persistir nada. La exportación tampoco
+persiste: recibe los textos finales por bloque y devuelve el PDF original con
+una capa visual de reemplazo.
 
 | Estado      | Cuándo se alcanza                                     |
 | ----------- | ----------------------------------------------------- |
@@ -164,6 +170,7 @@ Equivalencias:
 | `GET`  | `/api/v1/sessions/{session_id}/content`   | `200` | Devuelve el contenido ya extraído.                       |
 | `POST` | `/api/v1/sessions/{session_id}/analyze`   | `200` | Ejecuta reglas y, opcionalmente, IA.                     |
 | `GET`  | `/api/v1/sessions/{session_id}/diagnosis` | `200` | Devuelve el diagnóstico guardado.                        |
+| `POST` | `/api/v1/sessions/{session_id}/export`    | `200` | Aplica textos finales y devuelve el PDF adaptado.        |
 
 ### 5.1 `POST /api/v1/sessions/file`
 
@@ -277,6 +284,43 @@ párrafos con `\n\n`. El endpoint nunca devuelve `5xx` por un fallo de la IA:
 El fallback local solo divide el texto en párrafos; no lo reescribe. Para
 `alt_text`, `notes` siempre aclara que no se analizó la imagen.
 
+### 5.10 `POST /api/v1/sessions/{session_id}/export`
+
+Aplica los textos finales de uno o más bloques sobre el PDF original y devuelve
+el PDF adaptado. Es **stateless**: no persiste los textos ni cambia el estado de
+la sesión.
+
+- **Request:** `Content-Type: application/json` con [`ExportRequest`](#exportrequest).
+- **Response `200`:** `application/pdf` con `Content-Disposition: attachment;
+filename="documento-adaptado.pdf"; filename*=UTF-8''<stem>_adaptado.pdf`.
+- **Solo para sesiones PDF** con contenido extraído. El título del archivo sale
+  de `SessionResponse.filename`, sin la extensión `.pdf` y saneado.
+- **Errores:** `404 session_not_found`, `409 content_not_extracted`,
+  `409 export_unavailable`, `422 unknown_block`, `422 block_without_bbox`,
+  `422 duplicate_block_id`, `422 empty_text`, `422 text_too_long`,
+  `422 invalid_pdf` y `422 VALIDATION_ERROR`.
+
+Reglas de aplicación:
+
+- Cada `block_id` debe existir, tener `page` y `bbox`, y no repetirse.
+- Se dibuja un rectángulo blanco sobre el `bbox` (padding 0.5 pt) y encima el
+  texto nuevo, envuelto al ancho del bloque.
+- Se conservan los saltos de línea y los párrafos del texto enviado: `\n` corta
+  la línea y una línea en blanco (`\n\n` o más) separa párrafos con un
+  interlineado vacío. Los `\r\n` se normalizan a `\n`.
+- Fuente `Helvetica`; `Helvetica-Bold` para `heading`. Tamaño inicial:
+  `ContentBlock.font_size` o 10 pt. Interlineado 1.25×. Si no entra, se reduce
+  de a 0.5 pt hasta 6 pt; si aun así no entra, se recorta con `…`.
+- En bloques `image`, el texto va como leyenda en la franja inferior del `bbox`
+  (hasta 30 % del alto) para no tapar la imagen.
+- Las páginas sin edits y el resto de los objetos quedan intactos. El PDF de
+  salida conserva la cantidad de páginas y el MediaBox de cada una.
+
+> **Limitación:** el reemplazo es visual. El texto original sigue en la capa de
+> texto del PDF, así que copiar/pegar o un lector de pantalla pueden ver ambos
+> textos. La redacción real requiere PyMuPDF o cirugía de content streams y
+> queda para una issue aparte.
+
 ## 6. Modelos
 
 ### `SessionResponse`
@@ -324,6 +368,7 @@ El fallback local solo divide el texto en párrafos; no lo reescribe. Para
 | `width`      | `number`    | Sí   | Ancho en puntos; solo en imágenes.                             |
 | `height`     | `number`    | Sí   | Alto en puntos; solo en imágenes.                              |
 | `bbox`       | `BBox`      | Sí   | Rectángulo del bloque en puntos; `null` en texto pegado.       |
+| `font_size`  | `number`    | Sí   | Tamaño mediano de los caracteres en puntos; `null` en texto.   |
 
 ### `BBox`
 
@@ -440,6 +485,19 @@ Tamaño visible de una página del PDF.
 | `provider`      | `string`                | Sí   | Nombre visible del proveedor usado o intentado.              |
 | `created_at`    | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                           |
 
+### `ExportRequest`
+
+| Campo   | Tipo           | Requerido | Restricciones                                   |
+| ------- | -------------- | --------- | ----------------------------------------------- |
+| `edits` | `ExportEdit[]` | Sí        | Al menos un edit; los `block_id` no se repiten. |
+
+### `ExportEdit`
+
+| Campo      | Tipo     | Requerido | Restricciones                                           |
+| ---------- | -------- | --------- | ------------------------------------------------------- |
+| `block_id` | `string` | Sí        | Debe existir en el contenido extraído.                  |
+| `text`     | `string` | Sí        | No vacío después de `strip()`; máximo 8.000 caracteres. |
+
 ### `ErrorResponse`
 
 | Campo     | Tipo     | Nulo | Descripción                                   |
@@ -470,7 +528,7 @@ Pueden ser `null`:
 `ExtractedContent.title`, `ExtractedContent.page_count`, `ContentBlock.page`,
 `ContentBlock.text`, `ContentBlock.level`, `ContentBlock.items`,
 `ContentBlock.alt_text`, `ContentBlock.width`, `ContentBlock.height`,
-`ContentBlock.bbox`,
+`ContentBlock.bbox`, `ContentBlock.font_size`,
 `Observation.detail`, `Observation.block_id`, `Observation.page`,
 `Observation.excerpt`, `Diagnosis.ai_notice`, `Adaptation.rule_id`,
 `Adaptation.adapted_text`, `Adaptation.notes`, `Adaptation.source`,
@@ -559,7 +617,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": null
+      "bbox": null,
+      "font_size": null
     },
     {
       "id": "b2",
@@ -572,7 +631,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": null
+      "bbox": null,
+      "font_size": null
     },
     {
       "id": "b3",
@@ -585,7 +645,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": null
+      "bbox": null,
+      "font_size": null
     },
     {
       "id": "b4",
@@ -598,7 +659,8 @@ Response `200` de `POST /extract` o de `GET /content`:
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": null
+      "bbox": null,
+      "font_size": null
     }
   ]
 }
@@ -641,7 +703,8 @@ imágenes, `alt_text`, `width`, `height`, `pages`, `bbox`, `page_count` y
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": { "x0": 57.0, "top": 53.4, "x1": 257.4, "bottom": 63.4 }
+      "bbox": { "x0": 57.0, "top": 53.4, "x1": 257.4, "bottom": 63.4 },
+      "font_size": 10.5
     },
     {
       "id": "b6",
@@ -654,7 +717,8 @@ imágenes, `alt_text`, `width`, `height`, `pages`, `bbox`, `page_count` y
       "alt_text": null,
       "width": 209.8,
       "height": 141.7,
-      "bbox": { "x0": 192.8, "top": 51.4, "x1": 402.5, "bottom": 193.1 }
+      "bbox": { "x0": 192.8, "top": 51.4, "x1": 402.5, "bottom": 193.1 },
+      "font_size": null
     },
     {
       "id": "b8",
@@ -667,7 +731,8 @@ imágenes, `alt_text`, `width`, `height`, `pages`, `bbox`, `page_count` y
       "alt_text": null,
       "width": null,
       "height": null,
-      "bbox": { "x0": 57.0, "top": 346.9, "x1": 402.7, "bottom": 356.9 }
+      "bbox": { "x0": 57.0, "top": 346.9, "x1": 402.7, "bottom": 356.9 },
+      "font_size": 10.5
     }
   ]
 }
@@ -951,47 +1016,81 @@ recomendación para hacerlo a mano:
 }
 ```
 
+### 7.12 Exportación del PDF adaptado
+
+La respuesta es binaria (`application/pdf`), no JSON. Ejemplo:
+
+```bash
+curl -s -X POST "$BASE/sessions/$SESSION_ID/export" \
+  -H "Content-Type: application/json" \
+  -d '{"edits":[
+    {"block_id":"b1","text":"La célula es la unidad básica de la vida."},
+    {"block_id":"b2","text":"El núcleo contiene el material genético."}
+  ]}' \
+  -D headers.txt -o documento_adaptado.pdf
+```
+
+Headers esperados:
+
+```text
+HTTP/1.1 200 OK
+content-type: application/pdf
+content-disposition: attachment; filename="documento-adaptado.pdf"; filename*=UTF-8''documento_adaptado.pdf
+```
+
 ## 8. Catálogo de errores
 
 Todas las respuestas de error tienen la forma
 [`ErrorResponse`](#errorresponse): `{ "code": "...", "message": "..." }`.
 
-| HTTP  | `code`                      | Cuándo                                                        |
-| ----- | --------------------------- | ------------------------------------------------------------- |
-| `400` | `empty_content`             | Archivo vacío, o texto vacío/solo espacios.                   |
-| `400` | `invalid_pdf`               | El archivo no empieza con la firma `%PDF`.                    |
-| `404` | `session_not_found`         | La sesión indicada no existe.                                 |
-| `409` | `content_not_extracted`     | Se pidió el contenido antes de `POST /extract`.               |
-| `409` | `session_not_analyzed`      | Se pidió el diagnóstico antes de `POST /analyze`.             |
-| `413` | `file_too_large`            | El archivo supera `MAX_UPLOAD_MB` (25 MB por defecto).        |
-| `415` | `unsupported_format`        | La extensión del archivo no es `.pdf`.                        |
-| `422` | `no_extractable_text`       | El material no tiene texto (por ejemplo, un PDF escaneado).   |
-| `422` | `text_too_long`             | `original_text` supera los 8.000 caracteres.                  |
-| `422` | `observation_not_adaptable` | La regla no se puede adaptar (`no_headings`, `heading_skip`). |
-| `422` | `unknown_rule`              | El `rule_id` no existe en el catálogo de reglas.              |
-| `422` | `invalid_pdf`               | El PDF está dañado o protegido (al extraer o analizar).       |
-| `422` | `VALIDATION_ERROR`          | Body, query o UUID inválido. `message` detalla el campo.      |
-| `404` | `HTTP_404`                  | Ruta inexistente.                                             |
-| `405` | `HTTP_405`                  | Método no permitido para la ruta.                             |
-| `500` | `INTERNAL_ERROR`            | Error inesperado del servidor.                                |
+| HTTP  | `code`                      | Cuándo                                                            |
+| ----- | --------------------------- | ----------------------------------------------------------------- |
+| `400` | `empty_content`             | Archivo vacío, o texto vacío/solo espacios.                       |
+| `400` | `invalid_pdf`               | El archivo no empieza con la firma `%PDF`.                        |
+| `404` | `session_not_found`         | La sesión indicada no existe.                                     |
+| `409` | `content_not_extracted`     | Se pidió el contenido antes de `POST /extract`.                   |
+| `409` | `session_not_analyzed`      | Se pidió el diagnóstico antes de `POST /analyze`.                 |
+| `409` | `export_unavailable`        | Se intentó exportar una sesión creada desde texto pegado.         |
+| `413` | `file_too_large`            | El archivo supera `MAX_UPLOAD_MB` (25 MB por defecto).            |
+| `415` | `unsupported_format`        | La extensión del archivo no es `.pdf`.                            |
+| `422` | `no_extractable_text`       | El material no tiene texto (por ejemplo, un PDF escaneado).       |
+| `422` | `text_too_long`             | `original_text` o el texto de un bloque supera 8.000 caracteres.  |
+| `422` | `observation_not_adaptable` | La regla no se puede adaptar (`no_headings`, `heading_skip`).     |
+| `422` | `unknown_rule`              | El `rule_id` no existe en el catálogo de reglas.                  |
+| `422` | `invalid_pdf`               | El PDF está dañado o protegido (al extraer, analizar o exportar). |
+| `422` | `unknown_block`             | Un `block_id` del export no existe en el contenido.               |
+| `422` | `block_without_bbox`        | Un bloque del export no tiene coordenadas válidas en el PDF.      |
+| `422` | `duplicate_block_id`        | Un `block_id` aparece más de una vez en la exportación.           |
+| `422` | `empty_text`                | El texto de un bloque del export queda vacío.                     |
+| `422` | `text_too_long`             | El texto de un bloque del export supera 8.000 caracteres.         |
+| `422` | `VALIDATION_ERROR`          | Body, query o UUID inválido. `message` detalla el campo.          |
+| `404` | `HTTP_404`                  | Ruta inexistente.                                                 |
+| `405` | `HTTP_405`                  | Método no permitido para la ruta.                                 |
+| `500` | `INTERNAL_ERROR`            | Error inesperado del servidor.                                    |
 
 Mensajes actuales de los errores de aplicación:
 
-| `code`                      | `message`                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------------ |
-| `empty_content` (file)      | `El archivo está vacío.`                                                                   |
-| `empty_content` (text)      | `El texto no puede estar vacío.`                                                           |
-| `invalid_pdf` (upload)      | `El archivo no es un PDF válido.`                                                          |
-| `invalid_pdf` (extract)     | `No se pudo leer el PDF. Puede estar dañado o protegido.`                                  |
-| `file_too_large`            | `El archivo supera el límite de 25 MB permitido.`                                          |
-| `unsupported_format`        | `Por ahora solo se aceptan archivos PDF.`                                                  |
-| `session_not_found`         | `La sesión solicitada no existe.`                                                          |
-| `content_not_extracted`     | `El contenido todavía no fue extraído.`                                                    |
-| `session_not_analyzed`      | `La sesión todavía no fue analizada.`                                                      |
-| `no_extractable_text`       | `No se encontró texto en el material. Si es un PDF escaneado, no se puede leer por ahora.` |
-| `text_too_long`             | `El texto a adaptar supera el límite de 8.000 caracteres.`                                 |
-| `observation_not_adaptable` | `La barrera indicada no se puede adaptar automáticamente.`                                 |
-| `unknown_rule`              | `La regla indicada no existe en el catálogo.`                                              |
+| `code`                         | `message`                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `empty_content` (file)         | `El archivo está vacío.`                                                                   |
+| `empty_content` (text)         | `El texto no puede estar vacío.`                                                           |
+| `invalid_pdf` (upload)         | `El archivo no es un PDF válido.`                                                          |
+| `invalid_pdf` (extract/export) | `No se pudo leer el PDF. Puede estar dañado o protegido.`                                  |
+| `file_too_large`               | `El archivo supera el límite de 25 MB permitido.`                                          |
+| `unsupported_format`           | `Por ahora solo se aceptan archivos PDF.`                                                  |
+| `session_not_found`            | `La sesión solicitada no existe.`                                                          |
+| `content_not_extracted`        | `El contenido todavía no fue extraído.`                                                    |
+| `session_not_analyzed`         | `La sesión todavía no fue analizada.`                                                      |
+| `export_unavailable`           | `La exportación solo está disponible para sesiones creadas desde un PDF.`                  |
+| `unknown_block`                | `El bloque indicado no existe en el contenido extraído.`                                   |
+| `block_without_bbox`           | `El bloque indicado no tiene coordenadas válidas en el PDF.`                               |
+| `duplicate_block_id`           | `El bloque indicado está repetido en la solicitud.`                                        |
+| `empty_text`                   | `El texto de un bloque no puede estar vacío.`                                              |
+| `text_too_long` (export)       | `El texto de un bloque supera el límite de 8.000 caracteres.`                              |
+| `no_extractable_text`          | `No se encontró texto en el material. Si es un PDF escaneado, no se puede leer por ahora.` |
+| `text_too_long`                | `El texto a adaptar supera el límite de 8.000 caracteres.`                                 |
+| `observation_not_adaptable`    | `La barrera indicada no se puede adaptar automáticamente.`                                 |
+| `unknown_rule`                 | `La regla indicada no existe en el catálogo.`                                              |
 
 > No ramificar por `message`: usar siempre `code`. Los mensajes pueden cambiar.
 
@@ -1092,7 +1191,7 @@ Verificación rápida de que `/openapi.json` está completo:
 curl -s http://127.0.0.1:8000/openapi.json | jq '.paths | keys'
 ```
 
-Debe listar las 8 rutas de negocio más `/` y `/health`.
+Debe listar las 9 rutas de negocio más `/` y `/health`.
 
 ## 11. Cambios de contrato
 
@@ -1102,3 +1201,7 @@ Debe listar las 8 rutas de negocio más `/` y `/health`.
 - Los cambios incompatibles no se hacen sin coordinación previa.
 - `AdaptationType` y `Adaptation` ya forman parte del contrato (BE-13) y
   aparecen en `/openapi.json`.
+- **BE-15:** se agrega `POST /api/v1/sessions/{session_id}/export` (respuesta
+  PDF), los modelos `ExportRequest` y `ExportEdit`, y el campo aditivo
+  `ContentBlock.font_size` (`number | null`). No cambia ninguna ruta ni campo
+  existente.

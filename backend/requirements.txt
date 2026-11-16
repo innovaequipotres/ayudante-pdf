@@ -8,6 +8,10 @@ openai==3.22.1
 pdfplumber==0.11.10
 pillow==13.0.0
 
+# Exportación de PDFs adaptados
+pypdf==7.1.0
+reportlab==5.1.0
+
 # Persistencia
 sqlalchemy==2.1.4
 
