@@ -280,6 +280,102 @@ def test_export_shrinks_and_truncates_long_text() -> None:
     assert lines[0].endswith("…")
 
 
+def test_wrap_text_preserves_paragraphs() -> None:
+    lines = export_service._wrap_text(
+        "Primer párrafo.\n\nSegundo párrafo.",
+        "Helvetica",
+        12.0,
+        400.0,
+    )
+
+    assert lines == ["Primer párrafo.", "", "Segundo párrafo."]
+
+
+def test_wrap_text_preserves_single_line_breaks() -> None:
+    lines = export_service._wrap_text(
+        "Primera línea.\nSegunda línea.",
+        "Helvetica",
+        12.0,
+        400.0,
+    )
+
+    assert lines == ["Primera línea.", "Segunda línea."]
+
+
+def test_wrap_text_normalizes_windows_newlines() -> None:
+    lines = export_service._wrap_text(
+        "Uno.\r\n\r\nDos.",
+        "Helvetica",
+        12.0,
+        400.0,
+    )
+
+    assert lines == ["Uno.", "", "Dos."]
+
+
+def test_fit_text_truncates_on_last_line_with_text() -> None:
+    size, lines = export_service._fit_text(
+        "Primer párrafo.\n\nSegundo párrafo.",
+        "Helvetica",
+        12.0,
+        200.0,
+        20.0,
+    )
+
+    assert size == 6.0
+    assert lines == ["Primer párrafo.…"]
+
+
+def test_export_preserves_paragraphs() -> None:
+    pdf = _make_pdf([_page()])
+    block = _paragraph_block(
+        "Texto original",
+        bbox=BBox(x0=72.0, top=100.0, x1=400.0, bottom=190.0),
+    )
+    session, _ = _create_session_with_content(pdf, [block], _pages(1))
+
+    result = _export(
+        session.session_id,
+        [
+            ExportEdit(
+                block_id="b1",
+                text="Primer párrafo.\n\nSegundo párrafo.",
+            )
+        ],
+    )
+
+    with pdfplumber.open(io.BytesIO(result.content)) as exported:
+        extracted = exported.pages[0].extract_text() or ""
+        assert "Primer párrafo." in extracted
+        assert "Segundo párrafo." in extracted
+        assert "Primer párrafo. Segundo párrafo." not in extracted
+
+
+def test_export_normalizes_windows_newlines() -> None:
+    pdf = _make_pdf([_page()])
+    block = _paragraph_block(
+        "Texto original",
+        bbox=BBox(x0=72.0, top=100.0, x1=400.0, bottom=190.0),
+    )
+    session, _ = _create_session_with_content(pdf, [block], _pages(1))
+
+    result = _export(
+        session.session_id,
+        [
+            ExportEdit(
+                block_id="b1",
+                text="Primer párrafo.\r\n\r\nSegundo párrafo.",
+            )
+        ],
+    )
+
+    with pdfplumber.open(io.BytesIO(result.content)) as exported:
+        extracted = exported.pages[0].extract_text() or ""
+        assert "Primer párrafo." in extracted
+        assert "Segundo párrafo." in extracted
+        assert "Primer párrafo. Segundo párrafo." not in extracted
+
+
 @pytest.mark.parametrize(
     ("edits", "code"),
     [

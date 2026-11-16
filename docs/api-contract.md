@@ -305,6 +305,9 @@ Reglas de aplicación:
 - Cada `block_id` debe existir, tener `page` y `bbox`, y no repetirse.
 - Se dibuja un rectángulo blanco sobre el `bbox` (padding 0.5 pt) y encima el
   texto nuevo, envuelto al ancho del bloque.
+- Se conservan los saltos de línea y los párrafos del texto enviado: `\n` corta
+  la línea y una línea en blanco (`\n\n` o más) separa párrafos con un
+  interlineado vacío. Los `\r\n` se normalizan a `\n`.
 - Fuente `Helvetica`; `Helvetica-Bold` para `heading`. Tamaño inicial:
   `ContentBlock.font_size` o 10 pt. Interlineado 1.25×. Si no entra, se reduce
   de a 0.5 pt hasta 6 pt; si aun así no entra, se recorta con `…`.

@@ -135,6 +135,42 @@ def test_export_returns_pdf_with_same_pages_and_sizes(
         assert (exported_pdf.pages[0].extract_text() or "").count("Z") == 12
 
 
+def test_export_preserves_paragraphs(client: TestClient) -> None:
+    pdf = _make_pdf([["Texto original"]])
+    session = _create_pdf_session(client, pdf)
+    _save_custom_content(
+        session["session_id"],
+        [
+            ContentBlock(
+                type=BlockType.PARAGRAPH,
+                text="Texto original",
+                page=1,
+                bbox=BBox(x0=72.0, top=100.0, x1=400.0, bottom=190.0),
+                font_size=12.0,
+            )
+        ],
+        [PageSize(page=1, width=_WIDTH, height=_HEIGHT)],
+    )
+
+    response = _export(
+        client,
+        session["session_id"],
+        [
+            {
+                "block_id": "b1",
+                "text": "Primer párrafo.\n\nSegundo párrafo.",
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    with pdfplumber.open(io.BytesIO(response.content)) as exported:
+        extracted = exported.pages[0].extract_text() or ""
+        assert "Primer párrafo." in extracted
+        assert "Segundo párrafo." in extracted
+        assert "Primer párrafo. Segundo párrafo." not in extracted
+
+
 def test_export_applies_all_edits_in_one_call(client: TestClient) -> None:
     pdf = _make_pdf(
         [

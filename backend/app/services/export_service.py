@@ -110,7 +110,9 @@ def _validate_edits(
         ):
             raise AppError("block_without_bbox", _BLOCK_WITHOUT_BBOX, 422)
 
-        text = edit.text.strip()
+        text = (
+            edit.text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        )
         if not text:
             raise AppError("empty_text", _EMPTY_TEXT, 422)
         if len(text) > _MAX_TEXT_CHARS:
@@ -167,13 +169,13 @@ def _split_long_word(
     return chunks or [word]
 
 
-def _wrap_text(
+def _wrap_line(
     text: str,
     font_name: str,
     size: float,
     max_width: float,
 ) -> list[str]:
-    """Envuelve el texto al ancho disponible con la fuente indicada."""
+    """Envuelve una línea de texto al ancho disponible."""
     lines: list[str] = []
     current = ""
 
@@ -195,6 +197,37 @@ def _wrap_text(
 
     if current:
         lines.append(current)
+
+    return lines
+
+
+def _wrap_text(
+    text: str,
+    font_name: str,
+    size: float,
+    max_width: float,
+) -> list[str]:
+    """Envuelve el texto conservando párrafos y saltos de línea.
+
+    Los párrafos (separados por una o más líneas en blanco) quedan separados
+    por una línea vacía; los saltos simples ``\\n`` cortan la línea sin dejar
+    espacio adicional.
+    """
+    lines: list[str] = []
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    for paragraph in re.split(r"\n[ \t]*\n+", normalized):
+        paragraph_lines: list[str] = []
+        for source_line in paragraph.split("\n"):
+            paragraph_lines.extend(
+                _wrap_line(source_line, font_name, size, max_width)
+            )
+
+        if not paragraph_lines:
+            continue
+        if lines:
+            lines.append("")
+        lines.extend(paragraph_lines)
 
     return lines or [""]
 
@@ -250,7 +283,14 @@ def _fit_text(
 
     if len(lines) > max_lines:
         lines = lines[:max_lines]
-        lines[-1] = _with_ellipsis(lines[-1], font_name, size, width)
+        while lines and not lines[-1]:
+            lines.pop()
+        if lines:
+            lines[-1] = _with_ellipsis(
+                lines[-1], font_name, size, width
+            )
+        else:
+            lines = [_ELLIPSIS]
 
     return size, lines
 
@@ -311,7 +351,8 @@ def _draw_edit(
     canvas.setFont(font_name, size)
     text_y = page_height - text_top - size
     for line in lines:
-        canvas.drawString(bbox.x0, text_y, line)
+        if line:
+            canvas.drawString(bbox.x0, text_y, line)
         text_y -= leading
     canvas.restoreState()
 
