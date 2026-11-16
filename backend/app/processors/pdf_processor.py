@@ -96,6 +96,7 @@ class _Line:
     top: float
     bottom: float
     size: int
+    sizes: list[float]
     bold: bool
     char_count: int
     heading_level: int | None = None
@@ -139,6 +140,7 @@ class _OpenBlock:
     text: str = ""
     items: list[str] = field(default_factory=list)
     item_x0: float = 0.0
+    font_sizes: list[float] = field(default_factory=list)
 
     def extend(self, line: _Line) -> None:
         """Suma una línea al rectángulo del bloque."""
@@ -148,6 +150,7 @@ class _OpenBlock:
         self.bottom = max(self.bottom, line.bottom)
         self.last_bottom = line.bottom
         self.last_size = line.size
+        self.font_sizes.extend(line.sizes)
 
     def to_content_block(self) -> ContentBlock:
         """Convierte el bloque abierto en el modelo público."""
@@ -157,6 +160,9 @@ class _OpenBlock:
             x1=round(self.x1, 1),
             bottom=round(self.bottom, 1),
         )
+        font_size = (
+            round(median(self.font_sizes), 1) if self.font_sizes else None
+        )
         if self.kind == "heading":
             return ContentBlock(
                 type=BlockType.HEADING,
@@ -164,6 +170,7 @@ class _OpenBlock:
                 text=self.text,
                 level=self.level,
                 bbox=bbox,
+                font_size=font_size,
             )
         if self.kind == "list":
             return ContentBlock(
@@ -171,12 +178,14 @@ class _OpenBlock:
                 page=self.page,
                 items=list(self.items),
                 bbox=bbox,
+                font_size=font_size,
             )
         return ContentBlock(
             type=BlockType.PARAGRAPH,
             page=self.page,
             text=self.text,
             bbox=bbox,
+            font_size=font_size,
         )
 
 
@@ -266,6 +275,7 @@ def _read_page(
                 top=float(raw_line["top"]),
                 bottom=float(raw_line["bottom"]),
                 size=int(median(sizes) + 0.5),
+                sizes=sizes,
                 bold=_is_bold(chars),
                 char_count=len(sizes),
             )
@@ -401,6 +411,7 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
                     last_size=line.size,
                     level=line.heading_level,
                     text=line.text,
+                    font_sizes=list(line.sizes),
                 )
         elif line.list_item is not None:
             if current is not None and current.kind == "list":
@@ -420,6 +431,7 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
                     last_size=line.size,
                     items=[line.list_item],
                     item_x0=line.x0,
+                    font_sizes=list(line.sizes),
                 )
         else:
             is_list_continuation = (
@@ -452,6 +464,7 @@ def _group_page(page: _PageContent, body_size: int) -> list[ContentBlock]:
                     last_bottom=line.bottom,
                     last_size=line.size,
                     text=line.text,
+                    font_sizes=list(line.sizes),
                 )
 
     flush()
