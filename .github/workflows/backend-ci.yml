@@ -2,9 +2,9 @@ name: Backend CI
 
 on:
   pull_request:
-    branches: [ develop, main ]
+    branches: [develop, main]
   push:
-    branches: [ develop, main ]
+    branches: [develop, main]
 
 jobs:
   validate-backend:
@@ -28,20 +28,24 @@ jobs:
         if: steps.filter.outputs.backend == 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Verificar sintaxis y dependencias si existen
         if: steps.filter.outputs.backend == 'true'
         run: |
           python -m pip install --upgrade pip flake8
-          if [ -d "backend" ] && [ -f "backend/requirements.txt" ]; then
-            pip install -r backend/requirements.txt
+          if [ -d "backend" ] && [ -f "backend/requirements-dev.txt" ]; then
+            pip install -r backend/requirements-dev.txt
           fi
           if [ -d "backend" ]; then
             flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
           fi
 
+      - name: Ejecutar tests de backend
+        if: steps.filter.outputs.backend == 'true'
+        working-directory: backend
+        run: python -m pytest -q
+
       - name: Omitido (sin cambios en backend)
         if: steps.filter.outputs.backend != 'true'
         run: echo "No hubo cambios en backend. Check completado con éxito."
-        
