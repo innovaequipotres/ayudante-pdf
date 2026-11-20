@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+from app.processors.pdf_processor import extract_from_pdf
+from app.processors.text_processor import extract_from_text
 from app.scanner.rules import run_rules
 from app.scanner.scoring import (
     MAX_PENALTY_PER_RULE,
@@ -46,16 +48,19 @@ def _observation(
     )
 
 
-def _content_with(blocks: list[ContentBlock]) -> ExtractedContent:
+def _content_with(
+    blocks: list[ContentBlock],
+    page_count: int | None = None,
+) -> ExtractedContent:
     """Construye el contenido como lo hace ``content_service``."""
     session = SessionResponse(
         session_id=uuid4(),
-        source_type=SourceType.TEXT,
+        source_type=SourceType.PDF if page_count is not None else SourceType.TEXT,
         filename="Material de prueba",
         status=SessionStatus.UPLOADED,
         created_at=datetime.now(UTC),
     )
-    return build_content(session, blocks, None)
+    return build_content(session, blocks, page_count)
 
 
 def test_material_without_observations_scores_100() -> None:
@@ -244,6 +249,61 @@ def test_diagnosis_uses_disclaimer_by_default() -> None:
     diagnosis = build_diagnosis(uuid4(), [])
 
     assert diagnosis.disclaimer == SCORE_DISCLAIMER
+
+
+def test_clean_material_scores_100(clean_text: str) -> None:
+    content = _content_with(extract_from_text(clean_text))
+
+    observations = run_rules(content)
+    diagnosis = build_diagnosis(content.session_id, observations)
+
+    assert observations == []
+    assert diagnosis.score == 100
+    assert diagnosis.level is DiagnosisLevel.OK
+
+
+def test_problem_material_score_matches_penalties(problem_text: str) -> None:
+    content = _content_with(extract_from_text(problem_text))
+
+    observations = run_rules(content)
+    diagnosis = build_diagnosis(content.session_id, observations)
+
+    # long_sentence (10) + long_paragraph (4) + no_headings (4).
+    assert diagnosis.score == 82
+    assert diagnosis.level is DiagnosisLevel.BARRIER
+    assert len(diagnosis.observations) == 3
+
+
+def test_clean_pdf_scores_100(clean_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(clean_pdf)
+    content = _content_with(blocks, page_count)
+
+    observations = run_rules(content)
+    diagnosis = build_diagnosis(content.session_id, observations)
+
+    assert observations == []
+    assert diagnosis.score == 100
+    assert diagnosis.level is DiagnosisLevel.OK
+
+
+def test_scoring_is_deterministic() -> None:
+    observations = [
+        _observation("long_paragraph", Severity.HIGH, block_id="b1"),
+        _observation("long_sentence", Severity.MEDIUM, block_id="b2"),
+        _observation("image_without_alt", Severity.HIGH, block_id="b3"),
+    ]
+
+    first = build_diagnosis(uuid4(), observations)
+    second = build_diagnosis(first.session_id, observations)
+
+    assert first.score == second.score == 76
+    assert first.level is second.level
+    assert [item.id for item in first.observations] == [
+        item.id for item in second.observations
+    ]
+    assert [item.severity for item in first.observations] == [
+        item.severity for item in second.observations
+    ]
 
 
 def test_penalties_cover_every_severity() -> None:

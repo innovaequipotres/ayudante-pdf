@@ -110,3 +110,43 @@ def test_empty_headings_and_markers_are_ignored() -> None:
     assert len(blocks) == 1
     assert blocks[0].type == BlockType.PARAGRAPH
     assert blocks[0].text == "Texto"
+
+
+def test_extracts_clean_material(clean_text: str) -> None:
+    blocks = extract_from_text(clean_text)
+
+    assert [block.type for block in blocks] == [
+        BlockType.HEADING,
+        BlockType.PARAGRAPH,
+        BlockType.HEADING,
+        BlockType.LIST,
+        BlockType.PARAGRAPH,
+    ]
+    assert blocks[0].text == "La célula"
+    assert blocks[2].text == "Partes de la célula"
+    assert blocks[3].items == ["Membrana", "Citoplasma", "Núcleo"]
+
+
+def test_extracts_problem_material_as_one_paragraph(problem_text: str) -> None:
+    blocks = extract_from_text(problem_text)
+
+    assert len(blocks) == 1
+    assert blocks[0].type == BlockType.PARAGRAPH
+    assert blocks[0].text is not None
+    assert len(blocks[0].text.split()) > 150
+    assert "#" not in blocks[0].text
+
+
+def test_single_paragraph_is_returned_as_one_block() -> None:
+    blocks = extract_from_text(
+        "La célula es la unidad básica de la vida y cumple funciones vitales."
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].type == BlockType.PARAGRAPH
+    assert blocks[0].page is None
+
+
+def test_empty_text_returns_no_blocks() -> None:
+    assert extract_from_text("") == []
+    assert extract_from_text("   \n\t\n") == []
