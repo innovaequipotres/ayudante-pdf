@@ -380,3 +380,73 @@ def test_content_block_rejects_invalid_level(level: int) -> None:
 def test_content_block_rejects_invalid_page() -> None:
     with pytest.raises(ValidationError):
         ContentBlock(type=BlockType.PARAGRAPH, page=0)
+
+
+def test_extracts_clean_pdf_generated_with_reportlab(clean_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(clean_pdf)
+
+    assert page_count == 1
+    assert [block.type for block in blocks] == [
+        BlockType.HEADING,
+        BlockType.PARAGRAPH,
+        BlockType.HEADING,
+        BlockType.LIST,
+        BlockType.PARAGRAPH,
+    ]
+    assert [block.level for block in blocks if block.type is BlockType.HEADING] == [
+        1,
+        2,
+    ]
+    assert blocks[3].items == ["Membrana", "Citoplasma", "Núcleo"]
+    assert all(block.page == 1 for block in blocks)
+
+
+def test_extracts_problem_pdf_as_one_long_paragraph(problem_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(problem_pdf)
+
+    assert page_count == 1
+    assert len(blocks) == 1
+    assert blocks[0].type is BlockType.PARAGRAPH
+    assert blocks[0].text is not None
+    assert len(blocks[0].text.split()) > 300
+    assert "funciones vitales" in blocks[0].text
+
+
+def test_extracts_multipage_pdf(multipage_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(multipage_pdf)
+
+    assert page_count == 3
+    assert [block.page for block in blocks] == [1, 1, 2, 2, 3, 3]
+    assert [block.text for block in blocks if block.type is BlockType.HEADING] == [
+        "Unidad 1",
+        "Unidad 2",
+        "Unidad 3",
+    ]
+
+
+def test_extracts_pdf_with_image(image_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(image_pdf)
+
+    assert page_count == 1
+    images = [block for block in blocks if block.type is BlockType.IMAGE]
+    assert len(images) == 1
+    assert images[0].page == 1
+    assert images[0].width == 120.0
+    assert images[0].height == 80.0
+    assert images[0].text is None
+    assert images[0].alt_text is None
+
+
+def test_pdf_without_text_returns_no_blocks(blank_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(blank_pdf)
+
+    assert blocks == []
+    assert page_count == 1
+
+
+def test_malformed_pdf_fixture_raises_invalid_pdf(malformed_pdf: bytes) -> None:
+    with pytest.raises(AppError) as error:
+        extract_from_pdf(malformed_pdf)
+
+    assert error.value.code == "invalid_pdf"
+    assert error.value.status_code == 422

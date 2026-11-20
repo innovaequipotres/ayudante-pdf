@@ -200,6 +200,80 @@ def test_invalid_json_returns_unavailable() -> None:
     assert result.observations == []
 
 
+def test_missing_required_field_returns_unavailable() -> None:
+    ai = FakeAI(
+        _raw(
+            [
+                {
+                    "rule_id": "undefined_term",
+                    "block_id": "b1",
+                }
+            ]
+        )
+    )
+
+    result = analyze_with_ai(_blocks(), ai)
+
+    assert result.status.value == "unavailable"
+    assert result.observations == []
+    assert "reglas" in result.notice
+
+
+def test_wrong_field_type_returns_unavailable() -> None:
+    ai = FakeAI(
+        _raw(
+            [
+                {
+                    "rule_id": "undefined_term",
+                    "block_id": 123,
+                    "detail": "El término no está definido.",
+                }
+            ]
+        )
+    )
+
+    result = analyze_with_ai(_blocks(), ai)
+
+    assert result.status.value == "unavailable"
+    assert result.observations == []
+
+
+def test_all_findings_outside_catalog_are_discarded() -> None:
+    ai = FakeAI(
+        _raw(
+            [
+                _finding(rule_id="regla_inventada", block_id="b1"),
+                _finding(rule_id="undefined_term", block_id="bloque-falso"),
+            ]
+        )
+    )
+
+    result = analyze_with_ai(_blocks(), ai)
+
+    assert result.status.value == "ok"
+    assert result.observations == []
+
+
+def test_valid_findings_survive_when_others_are_invalid() -> None:
+    ai = FakeAI(
+        _raw(
+            [
+                _finding(rule_id="regla_inventada", block_id="b1"),
+                _finding(rule_id="undefined_term", block_id="bloque-falso"),
+                _finding(rule_id="dense_section", block_id="b2"),
+            ]
+        )
+    )
+
+    result = analyze_with_ai(_blocks(), ai)
+
+    assert result.status.value == "ok"
+    assert [observation.id for observation in result.observations] == [
+        "ai:dense_section:b2"
+    ]
+    assert result.observations[0].severity is Severity.MEDIUM
+
+
 def test_invalid_schema_returns_unavailable() -> None:
     ai = FakeAI(json.dumps({"findings": "no es una lista"}))
 
