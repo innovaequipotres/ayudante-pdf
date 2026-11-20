@@ -170,9 +170,10 @@ def make_clean_pdf() -> bytes:
 def make_problem_pdf() -> bytes:
     """PDF con problemas: sin títulos, párrafo y oración demasiado extensos."""
     long_sentence = " ".join(["La célula realiza funciones vitales"] * 12) + "."
-    rest = " ".join(
-        ["El material repite ideas sin pausas ni títulos que organicen la lectura."] * 28
+    repeated = (
+        "El material repite ideas sin pausas ni títulos que organicen la lectura."
     )
+    rest = " ".join([repeated] * 28)
     return _render(
         [
             ("paragraph", f"{long_sentence} {rest}"),
@@ -221,7 +222,8 @@ def make_image_pdf() -> bytes:
 
 def make_problem_pdf_with_image() -> bytes:
     """PDF con problemas de texto y una imagen sin descripción."""
-    long_sentence = " ".join(["La experiencia se repite sin una explicación clara"] * 10)
+    repeated = "La experiencia se repite sin una explicación clara"
+    long_sentence = " ".join([repeated] * 10)
     return _render(
         [
             ("paragraph", f"{long_sentence}. " + long_sentence + "."),

@@ -170,11 +170,12 @@ def test_multipage_pdf_keeps_pages_and_blocks(
     extracted = _extract(client, session["session_id"])
 
     assert extracted["page_count"] == 3
-    assert [block["page"] for block in extracted["blocks"] if block["type"] == "heading"] == [
-        1,
-        2,
-        3,
+    heading_pages = [
+        block["page"]
+        for block in extracted["blocks"]
+        if block["type"] == "heading"
     ]
+    assert heading_pages == [1, 2, 3]
     assert {
         block["page"] for block in extracted["blocks"] if block["page"] is not None
     } == {1, 2, 3}
