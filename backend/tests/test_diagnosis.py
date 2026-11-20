@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.scanner import ai_analysis
+from app.scanner.ai_analysis import AI_MAX_CHARS
 from app.schemas.ai import AiAnalysisResult, AiStatus
 from app.schemas.observation import (
     Category,
@@ -188,6 +192,96 @@ def test_ai_ok_merges_observations_in_document_order(
     assert ai_observation["source"] == "ai"
     # 4 puntos por long_paragraph y 4 por undefined_term.
     assert body["score"] == 92
+
+
+class _RaisingAI:
+    """Proveedor simulado que falla con un timeout."""
+
+    provider_name = "Google Gemini"
+
+    def generate_structured(self, **kwargs: Any) -> str:
+        raise TimeoutError("timeout simulado")
+
+
+class _ValidAI:
+    """Proveedor simulado que devuelve un hallazgo válido."""
+
+    provider_name = "Google Gemini"
+
+    def __init__(self, finding: dict[str, Any] | None = None) -> None:
+        self.finding = finding or {
+            "rule_id": "undefined_term",
+            "block_id": "b1",
+            "detail": "El término no está definido en el material.",
+            "severity": "high",
+        }
+        self.material_lengths: list[int] = []
+
+    def generate_structured(self, **kwargs: Any) -> str:
+        self.material_lengths.append(len(kwargs["material"]))
+        return json.dumps({"findings": [self.finding]})
+
+
+def test_ai_timeout_keeps_rules_and_returns_200(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ai_analysis, "get_ai_service", lambda: _RaisingAI())
+    session = _create_text_session(client, text=_LONG_TEXT)
+
+    response = client.post(_analyze_url(session["session_id"]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ai_status"] == "unavailable"
+    assert "Google Gemini" in body["ai_notice"]
+    assert "reglas" in body["ai_notice"]
+    assert body["observations"]
+    assert all(item["source"] == "rule" for item in body["observations"])
+    assert body["score"] == 96
+    stored = client.get(f"{API_PREFIX}/{session['session_id']}/diagnosis")
+    assert stored.status_code == 200
+    assert stored.json() == body
+
+
+def test_ai_valid_finding_uses_review_severity_and_privacy_notice(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ai = _ValidAI()
+    monkeypatch.setattr(ai_analysis, "get_ai_service", lambda: ai)
+    session = _create_text_session(client, text=_LONG_TEXT)
+
+    response = client.post(_analyze_url(session["session_id"]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ai_status"] == "ok"
+    assert body["ai_truncated"] is False
+    assert "Google Gemini" in body["ai_notice"]
+    assert "envía el texto" in body["ai_notice"]
+    assert "No se envía el archivo" in body["ai_notice"]
+    assert body["observations"][0]["severity"] == "medium"
+    assert body["observations"][0]["source"] == "ai"
+    assert body["score"] == 92
+
+
+def test_long_ai_material_is_truncated_and_notice_mentions_it(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ai = _ValidAI()
+    monkeypatch.setattr(ai_analysis, "get_ai_service", lambda: ai)
+    long_text = "palabra " * (AI_MAX_CHARS // 4)
+    session = _create_text_session(client, text=long_text)
+
+    response = client.post(_analyze_url(session["session_id"]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ai_truncated"] is True
+    assert "solo una parte" in body["ai_notice"]
+    assert ai.material_lengths == [AI_MAX_CHARS]
 
 
 def test_ai_unavailable_returns_200_with_rules(
