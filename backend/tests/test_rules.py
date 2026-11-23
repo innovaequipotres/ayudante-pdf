@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+from app.processors.pdf_processor import extract_from_pdf
+from app.processors.text_processor import extract_from_text
 from app.scanner.rules import (
     EXCERPT_MAX_CHARS,
     HEADING_SKIP_SEVERITY,
@@ -624,6 +626,79 @@ def test_split_sentences_handles_decimals_and_ellipsis() -> None:
         "Espera… luego sigue.",
         "Fin.",
     ]
+
+
+def test_clean_text_does_not_trigger_false_positives(clean_text: str) -> None:
+    content = _content(extract_from_text(clean_text))
+
+    assert run_rules(content) == []
+
+
+def test_problem_text_triggers_expected_rules(problem_text: str) -> None:
+    content = _content(extract_from_text(problem_text))
+
+    found = run_rules(content)
+
+    assert {observation.rule_id for observation in found} == {
+        "long_paragraph",
+        "long_sentence",
+        "no_headings",
+    }
+    assert {
+        observation.rule_id: observation.severity for observation in found
+    } == {
+        "long_paragraph": Severity.MEDIUM,
+        "long_sentence": Severity.HIGH,
+        "no_headings": Severity.MEDIUM,
+    }
+
+
+def test_clean_pdf_does_not_trigger_false_positives(clean_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(clean_pdf)
+    content = _content(blocks, page_count)
+
+    assert run_rules(content) == []
+
+
+def test_problem_pdf_triggers_expected_rules(problem_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(problem_pdf)
+    content = _content(blocks, page_count)
+
+    found = run_rules(content)
+
+    assert {observation.rule_id for observation in found} == {
+        "long_paragraph",
+        "long_sentence",
+        "no_headings",
+    }
+    assert all(observation.page == 1 for observation in found)
+
+
+def test_pdf_with_image_triggers_image_rule(image_pdf: bytes) -> None:
+    blocks, page_count = extract_from_pdf(image_pdf)
+    content = _content(blocks, page_count)
+
+    found = _by_rule(run_rules(content), "image_without_alt")
+
+    assert len(found) == 1
+    assert found[0].severity is Severity.HIGH
+    assert found[0].page == 1
+
+
+def test_pdf_with_text_and_image_triggers_both_rule_groups(
+    problem_pdf_with_image: bytes,
+) -> None:
+    blocks, page_count = extract_from_pdf(problem_pdf_with_image)
+    content = _content(blocks, page_count)
+
+    rule_ids = {observation.rule_id for observation in run_rules(content)}
+
+    assert {
+        "long_paragraph",
+        "long_sentence",
+        "no_headings",
+        "image_without_alt",
+    } <= rule_ids
 
 
 def test_split_sentences_handles_multi_dot_abbreviations() -> None:

@@ -451,9 +451,25 @@ diagnóstico por reglas sigue disponible.
 
 ## Tests
 
+La suite usa `pytest`, el `TestClient` de FastAPI y `reportlab` (solo en
+dependencias de desarrollo) para generar PDFs de prueba en memoria:
+
 ```bash
+# Desde backend/
+pip install -r requirements-dev.txt
 pytest
 ```
+
+También se puede ejecutar desde la raíz del repositorio:
+
+```bash
+backend/.venv/bin/python -m pytest
+```
+
+Los tests no hacen llamadas reales a Gemini, OpenRouter ni a ningún servicio
+externo: la IA se simula y un fixture autouse bloquea las conexiones de red.
+Los PDFs y textos limpios/con problemas están en `tests/pdf_factory.py` y
+`tests/materials.py`; no se versionan binarios.
 
 ## Formato de errores
 
@@ -516,11 +532,16 @@ backend/
 │   └── try_ai_analysis.py         # Reglas + análisis con IA sobre un PDF
 ├── tests/
 │   ├── conftest.py
+│   ├── materials.py
+│   ├── pdf_factory.py
 │   ├── test_ai_analysis.py
 │   ├── test_ai_provider.py
 │   ├── test_content.py
 │   ├── test_diagnosis.py
+│   ├── test_endpoints_errors.py
 │   ├── test_gemini.py
+│   ├── test_materials.py
+│   ├── test_network_guard.py
 │   ├── test_openrouter.py
 │   ├── test_pdf_processor.py
 │   ├── test_rules.py
