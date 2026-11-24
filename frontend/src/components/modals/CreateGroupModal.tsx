@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
@@ -68,7 +67,7 @@ export default function CreateGroupModal({
     const cleanName = name.trim();
 
     if (!cleanName) {
-      setError("Ingresá un nombre para el grupo.");
+      setError("              Ingresá un nombre para la carpeta.");
       return;
     }
 
@@ -112,14 +111,11 @@ export default function CreateGroupModal({
             </div>
 
             <div>
-              <h2
-                id="create-group-title"
-                className="text-xl font-bold"
-              >
-                Crear grupo
+              <h2 id="create-group-title" className="text-xl font-bold">
+                Crear carpeta
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                Organizá tus archivos por materia.
+                Organizá tus archivos en carpetas.
               </p>
             </div>
           </div>
@@ -140,7 +136,7 @@ export default function CreateGroupModal({
               htmlFor="group-name"
               className="mb-2 block text-sm font-semibold"
             >
-              Nombre del grupo
+              Nombre de la carpeta
             </label>
 
             <input
@@ -278,7 +274,7 @@ export default function CreateGroupModal({
               type="submit"
               className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white transition hover:bg-violet-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
             >
-              Crear grupo
+              Crear carpeta
             </button>
           </div>
         </form>

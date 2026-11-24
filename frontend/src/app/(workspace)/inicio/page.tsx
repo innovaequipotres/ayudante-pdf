@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { ArrowRight, ChevronRight, FileText, UploadCloud } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronRight,
+  FileText,
+  UploadCloud,
+  AlertCircle,
+} from "lucide-react";
 import { DEMO_MOCKS } from "@/lib/demoMocks";
 import { useLumiStore } from "@/store/useLumiStore";
 import type { LumiDocument } from "@/types";
@@ -14,6 +20,7 @@ const STATUS_STYLES: Record<LumiDocument["status"], string> = {
   Analizado: "bg-emerald-100 text-emerald-800",
   "En edición": "bg-blue-100 text-blue-800",
   Procesando: "bg-amber-100 text-amber-800",
+  Guardado: "bg-fuchsia-100 text-fuchsia-800",
 };
 
 export default function InicioPage() {
@@ -22,42 +29,55 @@ export default function InicioPage() {
   const user = useLumiStore((state) => state.user);
   const documents = useLumiStore((state) => state.documents);
   const diagnostics = useLumiStore((state) => state.diagnostics);
+  const isLoading = useLumiStore((state) => state.isLoading);
+  const error = useLumiStore((state) => state.error);
+  const uploadAndAnalyze = useLumiStore((state) => state.uploadAndAnalyze);
   const setPendingUpload = useLumiStore((state) => state.setPendingUpload);
   const setDemoDocument = useLumiStore((state) => state.setDemoDocument);
-  const [error, setError] = useState("");
+  const clearError = useLumiStore((state) => state.clearError);
+  const [localError, setLocalError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
   const firstName = user.fullName.trim().split(/\s+/)[0] || user.fullName;
 
-  const selectFile = (file?: File) => {
+  const selectFile = async (file?: File) => {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setError("El archivo debe tener formato PDF.");
+      setLocalError("El archivo debe tener formato PDF.");
       return;
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setError("El archivo supera el límite de 25 MB.");
+      setLocalError("El archivo supera el límite de 25 MB.");
       return;
     }
 
     const demo = DEMO_MOCKS[file.name];
 
     if (!demo) {
-      setError("");
-      alert("Para la demo solo se admiten los archivos de prueba.");
+      setLocalError("");
+      try {
+        await uploadAndAnalyze(file);
+        const sessionId = useLumiStore.getState().currentSessionId;
+        if (sessionId) {
+          router.push(`/analizando?sessionId=${sessionId}`);
+        }
+      } catch {
+        // Error already handled in store
+      }
       return;
     }
 
-    setError("");
+    // Demo file - use mock flow
+    setLocalError("");
     const fileUrl = URL.createObjectURL(file);
     setPendingUpload(file);
     router.push("/analizando");
     window.setTimeout(() => {
       setDemoDocument(file.name, fileUrl);
       router.push(`/diagnostico/${demo.id}`);
-    }, 3000);
+    }, 1500);
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -77,6 +97,8 @@ export default function InicioPage() {
   };
 
   const recentDocuments = documents.slice(0, 4);
+
+  const displayError = localError || error;
 
   return (
     <main className="min-h-svh bg-[#f7fafc] text-slate-900">
@@ -112,21 +134,37 @@ export default function InicioPage() {
               onChange={handleFileChange}
               className="sr-only"
               aria-label="Seleccionar archivo PDF"
+              disabled={isLoading}
             />
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
-              className="mt-3 min-h-11 rounded-md bg-slate-800 px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+              disabled={isLoading}
+              className="mt-3 min-h-11 rounded-md bg-slate-800 px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Seleccionar archivo
+              {isLoading ? "Subiendo..." : "Seleccionar archivo"}
             </button>
             <p className="mt-3 text-xs text-slate-600 sm:text-sm">
               Arrastrá tu archivo acá o seleccioná un PDF de hasta 25 MB.
             </p>
-            {error && (
-              <p role="alert" className="mt-3 text-sm font-medium text-red-700">
-                {error}
-              </p>
+            {displayError && (
+              <div
+                role="alert"
+                className="mt-3 flex items-center gap-2 text-sm font-medium text-red-700"
+              >
+                <AlertCircle aria-hidden="true" className="size-4 shrink-0" />
+                {displayError}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocalError("");
+                    clearError();
+                  }}
+                  className="ml-2 text-red-700 underline hover:text-red-900"
+                >
+                  Descartar
+                </button>
+              </div>
             )}
           </div>
         </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Info, Pencil, X } from "lucide-react";
+import { Check, Info, LoaderCircle, Pencil, Sparkles, X } from "lucide-react";
 import type { Barrier } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -12,15 +12,26 @@ export interface SuggestionCardProps {
   barrier: Barrier;
   onApply: (barrier: Barrier, acceptedSuggestion: string) => void;
   onDismiss: (barrier: Barrier) => void;
+  onGenerateSuggestion: (barrier: Barrier) => void;
+  isAdapting: boolean;
+  canAdapt: boolean;
 }
 
 export function SuggestionCard({
   barrier,
   onApply,
   onDismiss,
+  onGenerateSuggestion,
+  isAdapting,
+  canAdapt,
 }: SuggestionCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedSuggestion, setEditedSuggestion] = useState(barrier.suggestion);
+
+  function generateSuggestion() {
+    setIsEditing(false);
+    onGenerateSuggestion(barrier);
+  }
 
   function startEditing() {
     setEditedSuggestion(barrier.suggestion);
@@ -32,7 +43,17 @@ export function SuggestionCard({
     setIsEditing(false);
   }
 
-  function applySuggestion() {
+  function applyGeneratedSuggestion() {
+    const acceptedSuggestion = barrier.suggestion.trim();
+
+    if (!acceptedSuggestion) {
+      return;
+    }
+
+    onApply(barrier, acceptedSuggestion);
+  }
+
+  function applyEditedSuggestion() {
     const acceptedSuggestion = editedSuggestion.trim();
 
     if (!acceptedSuggestion) {
@@ -48,13 +69,41 @@ export function SuggestionCard({
   return (
     <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <h3 className="text-sm font-semibold text-slate-900">{barrier.type}</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-900">
+            {barrier.title ?? barrier.type}
+          </h3>
+          {barrier.title && barrier.title !== barrier.type && (
+            <p className="mt-0.5 text-xs text-slate-500">{barrier.type}</p>
+          )}
+        </div>
         <Badge
           variant={
             isApplied ? "Aplicada" : isEditing ? "En edición" : barrier.severity
           }
         />
       </header>
+
+      {(barrier.detail || barrier.recommendation || barrier.whyItMatters) && (
+        <section aria-label="Explicación de la barrera" className="space-y-1.5">
+          <h4 className="text-xs font-semibold text-slate-600">
+            Por qué se detectó
+          </h4>
+          <p className="whitespace-pre-wrap wrap-break-word text-sm leading-5 text-slate-700">
+            {barrier.detail ?? barrier.recommendation}
+          </p>
+          {barrier.whyItMatters && (
+            <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-500">
+              {barrier.whyItMatters}
+            </p>
+          )}
+          {barrier.detail && barrier.recommendation && (
+            <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-500">
+              Recomendación: {barrier.recommendation}
+            </p>
+          )}
+        </section>
+      )}
 
       <section aria-label="Fragmento detectado">
         <h4 className="mb-1 text-xs font-semibold text-slate-600">
@@ -101,19 +150,49 @@ export function SuggestionCard({
           </div>
         </section>
       ) : (
-        <section aria-label="Sugerencia">
-          <h4 className="mb-1 text-xs font-semibold text-slate-600">
-            Sugerencia
+        <section aria-label="Texto propuesto" className="space-y-2">
+          <h4 className="text-xs font-semibold text-slate-600">
+            Texto propuesto
           </h4>
-          <p className="whitespace-pre-wrap wrap-break-word rounded-md border border-blue-100 bg-blue-50 p-3 text-sm leading-5 text-blue-900">
-            {barrier.suggestion}
-          </p>
+          {barrier.suggestion ? (
+            <p className="whitespace-pre-wrap wrap-break-word rounded-md border border-blue-100 bg-blue-50 p-3 text-sm leading-5 text-blue-900">
+              {barrier.suggestion}
+            </p>
+          ) : (
+            <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm leading-5 text-slate-600">
+              Todavía no hay texto adaptado. Generalo con IA o escribilo a mano
+              para reemplazar el fragmento.
+            </p>
+          )}
+          {barrier.adaptationNotes && (
+            <p className="wrap-break-word text-xs leading-5 text-slate-500">
+              {barrier.adaptationNotes}
+            </p>
+          )}
         </section>
       )}
 
       <footer className="flex flex-wrap justify-end gap-2">
         {!isApplied && !isEditing ? (
           <>
+            {canAdapt && (
+              <Button
+                variant="secondary"
+                className="px-3 py-1.5 text-xs"
+                onClick={generateSuggestion}
+                disabled={isAdapting}
+              >
+                {isAdapting ? (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-3.5 animate-spin"
+                  />
+                ) : (
+                  <Sparkles aria-hidden="true" className="size-3.5" />
+                )}
+                {isAdapting ? "Generando..." : "Generar sugerencia con IA"}
+              </Button>
+            )}
             <Button
               variant="outline"
               className="px-3 py-1.5 text-xs"
@@ -133,7 +212,8 @@ export function SuggestionCard({
             <Button
               variant="primary"
               className="px-3 py-1.5 text-xs"
-              onClick={applySuggestion}
+              onClick={applyGeneratedSuggestion}
+              disabled={!barrier.suggestion.trim()}
             >
               <Check aria-hidden="true" className="size-3.5" />
               Aplicar cambio
@@ -141,6 +221,24 @@ export function SuggestionCard({
           </>
         ) : !isApplied && isEditing ? (
           <>
+            {canAdapt && (
+              <Button
+                variant="secondary"
+                className="px-3 py-1.5 text-xs"
+                onClick={generateSuggestion}
+                disabled={isAdapting}
+              >
+                {isAdapting ? (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-3.5 animate-spin"
+                  />
+                ) : (
+                  <Sparkles aria-hidden="true" className="size-3.5" />
+                )}
+                {isAdapting ? "Generando..." : "Generar sugerencia con IA"}
+              </Button>
+            )}
             <Button
               variant="outline"
               className="px-3 py-1.5 text-xs"
@@ -151,7 +249,7 @@ export function SuggestionCard({
             <Button
               variant="primary"
               className="px-3 py-1.5 text-xs"
-              onClick={applySuggestion}
+              onClick={applyEditedSuggestion}
               disabled={!editedSuggestion.trim()}
             >
               <Check aria-hidden="true" className="size-3.5" />

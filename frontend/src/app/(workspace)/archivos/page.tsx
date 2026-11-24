@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { Suspense, useMemo, useState, type ChangeEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Search,
   Plus,
@@ -22,13 +23,7 @@ import {
 import CreateGroupModal, {
   type NewGroup,
 } from "@/components/modals/CreateGroupModal";
-
-interface Group {
-  id: number;
-  name: string;
-  color: string;
-  files: string[];
-}
+import { useLumiStore } from "@/store/useLumiStore";
 
 type ViewMode = "lista" | "iconos" | "archivos";
 type FilterMode = "todos" | "con-archivos" | "sin-archivos";
@@ -39,47 +34,18 @@ interface DocumentItem {
   id: string;
   name: string;
   groupName: string;
-  groupId: number;
+  groupId: string | null;
   color: string;
   status: string;
   date: string;
 }
 
-const INITIAL_GROUPS: Group[] = [
-  {
-    id: 1,
-    name: "Matemática",
-    color: "#8B5CF6",
-    files: ["Trabajo_Practico.pdf", "Resumen_Materia.pdf"],
-  },
-  {
-    id: 2,
-    name: "Lengua",
-    color: "#3B82F6",
-    files: ["Trabajo_Practico.pdf"],
-  },
-  {
-    id: 3,
-    name: "Historia",
-    color: "#F97316",
-    files: [],
-  },
-  {
-    id: 4,
-    name: "Biología",
-    color: "#22C55E",
-    files: [],
-  },
-  {
-    id: 5,
-    name: "Física",
-    color: "#EC4899",
-    files: [],
-  },
-];
-
-export default function MisArchivosPage() {
-  const [groups, setGroups] = useState<Group[]>(INITIAL_GROUPS);
+function MisArchivosPage() {
+  const searchParams = useSearchParams();
+  const requestedFolderId = searchParams.get("folderId");
+  const folders = useLumiStore((state) => state.folders);
+  const storeDocuments = useLumiStore((state) => state.documents);
+  const createFolder = useLumiStore((state) => state.createFolder);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("todos");
   const [sort, setSort] = useState<SortMode>("nombre");
@@ -87,41 +53,53 @@ export default function MisArchivosPage() {
   const [view, setView] = useState<ViewMode>("lista");
   const [modalOpen, setModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
-  const [expandedGroups, setExpandedGroups] = useState<number[]>(
-    INITIAL_GROUPS.map((group) => group.id),
-  );
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+    if (
+      requestedFolderId &&
+      folders.some((folder) => folder.id === requestedFolderId)
+    ) {
+      return [requestedFolderId];
+    }
+
+    return folders.map((folder) => folder.id);
+  });
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
   const documents = useMemo<DocumentItem[]>(() => {
-    return groups.flatMap((group) =>
-      group.files.map((file, index) => ({
-        id: `${group.id}-${index}-${file}`,
-        name: file,
-        groupName: group.name,
-        groupId: group.id,
-        color: group.color,
-        status: "Disponible",
-        date: "Sin fecha",
-      })),
-    );
-  }, [groups]);
+    return storeDocuments.map((document) => {
+      const folder = folders.find((item) => item.id === document.folderId);
+
+      return {
+        id: document.id,
+        name: document.name,
+        groupName: folder?.name ?? "Mis archivos (sin carpeta)",
+        groupId: document.folderId,
+        color: folder?.color ?? "#94A3B8",
+        status: document.status,
+        date: document.date,
+      };
+    });
+  }, [storeDocuments, folders]);
 
   const visibleGroups = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return groups
-      .filter((group) => {
+    return folders
+      .filter((folder) => {
+        const folderDocuments = documents.filter(
+          (document) => document.groupId === folder.id,
+        );
         const matchesSearch =
           !normalizedSearch ||
-          group.name.toLowerCase().includes(normalizedSearch) ||
-          group.files.some((file) =>
-            file.toLowerCase().includes(normalizedSearch),
+          folder.name.toLowerCase().includes(normalizedSearch) ||
+          folderDocuments.some((document) =>
+            document.name.toLowerCase().includes(normalizedSearch),
           );
 
         const matchesFilter =
           filter === "todos" ||
-          (filter === "con-archivos" && group.files.length > 0) ||
-          (filter === "sin-archivos" && group.files.length === 0);
+          (filter === "con-archivos" && folderDocuments.length > 0) ||
+          (filter === "sin-archivos" && folderDocuments.length === 0);
 
         return matchesSearch && matchesFilter;
       })
@@ -130,10 +108,13 @@ export default function MisArchivosPage() {
           ? b.name.localeCompare(a.name, "es")
           : a.name.localeCompare(b.name, "es"),
       );
-  }, [groups, search, filter, sort]);
+  }, [folders, documents, search, filter, sort]);
 
   const visibleDocuments = useMemo(() => {
-    const allowedGroupIds = new Set(visibleGroups.map((group) => group.id));
+    const allowedGroupIds = new Set<string | null>(
+      visibleGroups.map((folder) => folder.id),
+    );
+    allowedGroupIds.add(null);
 
     return documents
       .filter((document) => allowedGroupIds.has(document.groupId))
@@ -153,7 +134,11 @@ export default function MisArchivosPage() {
       );
   }, [documents, visibleGroups, search, sort]);
 
-  const toggleGroup = (groupId: number) => {
+  const visibleRootDocuments = visibleDocuments.filter(
+    (document) => document.groupId === null,
+  );
+
+  const toggleGroup = (groupId: string) => {
     setExpandedGroups((current) =>
       current.includes(groupId)
         ? current.filter((id) => id !== groupId)
@@ -183,28 +168,33 @@ export default function MisArchivosPage() {
   };
 
   const handleCreateGroup = (newGroup: NewGroup) => {
-    const exists = groups.some(
-      (group) =>
-        group.name.trim().toLowerCase() === newGroup.name.trim().toLowerCase(),
+    const exists = folders.some(
+      (folder) =>
+        folder.name.trim().toLowerCase() === newGroup.name.trim().toLowerCase(),
     );
 
     if (exists) {
-      setNotice("Ya existe una materia con ese nombre.");
+      setNotice("Ya existe una carpeta con ese nombre.");
       return;
     }
 
-    const group: Group = {
-      id: Date.now(),
-      name: newGroup.name.trim(),
+    const folder = createFolder({
+      name: newGroup.name,
       color: newGroup.color,
-      files: newGroup.file ? [newGroup.file.name] : [],
-    };
+      file: newGroup.file
+        ? { name: newGroup.file.name, size: newGroup.file.size }
+        : null,
+    });
 
-    setGroups((current) => [...current, group]);
-    setExpandedGroups((current) => [...current, group.id]);
+    if (!folder) {
+      setNotice("No se pudo crear la carpeta.");
+      return;
+    }
+
+    setExpandedGroups((current) => [...current, folder.id]);
     setSearch("");
     setFilter("todos");
-    setNotice(`Se creó el grupo "${group.name}".`);
+    setNotice(`Se creó la carpeta "${folder.name}".`);
     setModalOpen(false);
   };
 
@@ -223,7 +213,7 @@ export default function MisArchivosPage() {
           <div>
             <h1 className="page-title">Mis archivos</h1>
             <p className="page-subtitle mt-2">
-              Organizá tus documentos y materiales por materia.
+              Organizá tus documentos en carpetas.
             </p>
           </div>
 
@@ -236,7 +226,7 @@ export default function MisArchivosPage() {
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
           >
             <Plus size={19} />
-            Crear grupo
+            Crear carpeta
           </button>
         </header>
 
@@ -270,8 +260,8 @@ export default function MisArchivosPage() {
                 type="search"
                 value={search}
                 onChange={handleSearchChange}
-                placeholder="Buscar por materia o nombre de archivo..."
-                aria-label="Buscar archivos y materias"
+                placeholder="Buscar por carpeta o nombre de archivo..."
+                aria-label="Buscar archivos y carpetas"
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
               />
             </div>
@@ -291,7 +281,7 @@ export default function MisArchivosPage() {
                   }
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
                 >
-                  <option value="todos">Todas las materias</option>
+                  <option value="todos">Todas las carpetas</option>
                   <option value="con-archivos">Con archivos</option>
                   <option value="sin-archivos">Sin archivos</option>
                 </select>
@@ -323,7 +313,7 @@ export default function MisArchivosPage() {
                     }
                     className="max-w-32 bg-transparent outline-none"
                   >
-                    <option value="materia">Materia</option>
+                    <option value="materia">Carpeta</option>
                     <option value="estado">Estado</option>
                   </select>
                 </label>
@@ -397,12 +387,12 @@ export default function MisArchivosPage() {
           <div>
             <h2 className="text-xl font-bold">
               {groupMode === "materia"
-                ? "Mis materias"
+                ? "Mis carpetas"
                 : "Documentos por estado"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {groupMode === "materia"
-                ? `${visibleGroups.length} materia(s)`
+                ? `${visibleGroups.length} carpeta(s)`
                 : `${visibleDocuments.length} documento(s)`}
             </p>
           </div>
@@ -421,12 +411,41 @@ export default function MisArchivosPage() {
           )}
         </div>
 
+        {visibleRootDocuments.length > 0 && (
+          <section className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 p-4 sm:p-5">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                <Files size={22} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">
+                  Mis archivos (sin carpeta)
+                </span>
+                <span className="mt-1 block text-sm text-slate-500">
+                  {visibleRootDocuments.length} archivo(s)
+                </span>
+              </span>
+            </div>
+            <div className="border-t border-slate-100 p-3 sm:p-5">
+              <DocumentView
+                documents={visibleRootDocuments}
+                view={view}
+                selectedFiles={selectedFiles}
+                onToggleFile={toggleFile}
+              />
+            </div>
+          </section>
+        )}
+
         {groupMode === "materia" ? (
           <div className="space-y-4">
             {visibleGroups.map((group) => {
               const groupDocuments = visibleDocuments.filter(
                 (document) => document.groupId === group.id,
               );
+              const totalDocuments = documents.filter(
+                (document) => document.groupId === group.id,
+              ).length;
               const isExpanded = expandedGroups.includes(group.id);
 
               return (
@@ -453,7 +472,7 @@ export default function MisArchivosPage() {
                     <span className="min-w-0 flex-1">
                       <span className="block font-semibold">{group.name}</span>
                       <span className="mt-1 block text-sm text-slate-500">
-                        {group.files.length} archivo(s)
+                        {totalDocuments} archivo(s)
                       </span>
                     </span>
 
@@ -473,8 +492,8 @@ export default function MisArchivosPage() {
                             className="mx-auto mb-2 text-slate-400"
                           />
                           <p className="font-medium text-slate-600">
-                            {group.files.length === 0
-                              ? "Todavía no hay archivos en esta materia."
+                            {totalDocuments === 0
+                              ? "Todavía no hay archivos en esta carpeta."
                               : "No hay documentos que coincidan con la búsqueda."}
                           </p>
                           <p className="mt-1 text-sm text-slate-400">
@@ -497,7 +516,7 @@ export default function MisArchivosPage() {
             })}
 
             {visibleGroups.length === 0 && (
-              <EmptyState message="No se encontraron materias con esos criterios." />
+              <EmptyState message="No se encontraron carpetas con esos criterios." />
             )}
           </div>
         ) : (
@@ -520,8 +539,8 @@ export default function MisArchivosPage() {
         )}
 
         <p className="mt-6 text-center text-xs leading-5 text-slate-400">
-          Datos de demostración. Los estados, fechas y previsualizaciones reales
-          dependerán de la integración con los documentos del sistema.
+          Los cambios se guardan en esta sesión y se reflejan al volver a esta
+          vista.
         </p>
       </div>
 
@@ -531,6 +550,20 @@ export default function MisArchivosPage() {
         onCreate={handleCreateGroup}
       />
     </main>
+  );
+}
+
+export default function ArchivosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">
+          Cargando Mis archivos...
+        </div>
+      }
+    >
+      <MisArchivosPage />
+    </Suspense>
   );
 }
 
