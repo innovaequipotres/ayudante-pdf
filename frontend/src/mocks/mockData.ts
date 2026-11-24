@@ -1,4 +1,4 @@
-import type { DiagnosticResult, LumiDocument, User } from "@/types";
+import type { DiagnosticResult, Folder, LumiDocument, User } from "@/types";
 
 export const mockUser: User = {
   id: "usuario-luis-aguilar",
@@ -6,6 +6,14 @@ export const mockUser: User = {
   role: "Docente",
   initials: "MP",
 };
+
+export const mockFolders: Folder[] = [
+  { id: "carpeta-matematica", name: "Matemática", color: "#8B5CF6" },
+  { id: "carpeta-lengua", name: "Lengua", color: "#3B82F6" },
+  { id: "carpeta-historia", name: "Historia", color: "#F97316" },
+  { id: "carpeta-biologia", name: "Biología", color: "#22C55E" },
+  { id: "carpeta-fisica", name: "Física", color: "#EC4899" },
+];
 
 export const mockDocuments: LumiDocument[] = [
   {
@@ -15,6 +23,7 @@ export const mockDocuments: LumiDocument[] = [
     size: "2,4 MB",
     date: "28 de octubre de 2026",
     status: "Analizado",
+    folderId: "carpeta-matematica",
     originalContent:
       "Práctica de funciones\n\nEl alumno deberá resolver los siguientes ejercicios. Para obtener el resultado correcto, deberá reemplazar los valores en la fórmula y realizar las operaciones en el orden indicado.\n\nActividades\n1. Hallar la imagen de la función para x = 2.\n2. Representar la función en un sistema de ejes cartesianos.",
     modifiedContent:
@@ -27,6 +36,7 @@ export const mockDocuments: LumiDocument[] = [
     size: "1,8 MB",
     date: "25 de octubre de 2026",
     status: "En edición",
+    folderId: "carpeta-matematica",
     originalContent:
       "Proporcionalidad directa\n\nDos magnitudes son directamente proporcionales cuando al multiplicar una de ellas por un número, la otra queda multiplicada por el mismo número.",
     modifiedContent:
@@ -39,6 +49,7 @@ export const mockDocuments: LumiDocument[] = [
     size: "3,1 MB",
     date: "24 de octubre de 2026",
     status: "Procesando",
+    folderId: "carpeta-matematica",
     originalContent:
       "Introducción a las funciones\n\nUna función relaciona cada elemento de un conjunto con un único elemento de otro conjunto.",
     modifiedContent:

@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState, type ClipboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import DOMPurify from "dompurify";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
   ArrowLeft,
+  CheckCircle2,
   ChevronRight,
   Download,
   Eye,
@@ -25,7 +32,9 @@ import { SuggestionCard } from "@/components/editor/SuggestionCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useLumiStore } from "@/store/useLumiStore";
+import { USE_MOCKS } from "@/services";
 import type { Barrier, LumiDocument } from "@/types";
+import type { AdaptationType, Category, ExportEdit } from "@/services";
 
 const PDF_PAGE_WIDTH = 794;
 const PDF_PAGE_HEIGHT = 1123;
@@ -171,6 +180,46 @@ function containsFlexibleText(html: string, value: string): boolean {
   return pattern ? pattern.test(getPlainTextFromHtml(html)) : false;
 }
 
+const NOT_ADAPTABLE_RULES = new Set(["no_headings", "heading_skip"]);
+
+const ADAPTATION_TYPE_BY_RULE: Record<string, AdaptationType> = {
+  long_paragraph: "simplify",
+  long_sentence: "simplify",
+  dense_section: "simplify",
+  undefined_term: "simplify",
+  ambiguous_instruction: "clarify",
+  image_without_alt: "alt_text",
+  visual_reference: "describe",
+  image_only_page: "describe",
+  unclear_sequence: "sequence",
+};
+
+function getAdaptationType(barrier: Barrier): AdaptationType {
+  if (barrier.ruleId && ADAPTATION_TYPE_BY_RULE[barrier.ruleId]) {
+    return ADAPTATION_TYPE_BY_RULE[barrier.ruleId];
+  }
+
+  return barrier.category === "multimedia" ? "alt_text" : "simplify";
+}
+
+function canAdaptBarrier(barrier: Barrier): boolean {
+  return !barrier.ruleId || !NOT_ADAPTABLE_RULES.has(barrier.ruleId);
+}
+
+function buildExportEdits(barriers: Barrier[]): ExportEdit[] {
+  return barriers
+    .filter(
+      (b) =>
+        b.status === "Aplicada" &&
+        Boolean(b.blockId) &&
+        b.suggestion.trim().length > 0,
+    )
+    .map((b) => ({
+      block_id: b.blockId!,
+      text: b.suggestion.trim(),
+    }));
+}
+
 export default function EditarDocumentoPage() {
   const { id } = useParams<{ id: string }>();
   const document = useLumiStore((state) =>
@@ -182,6 +231,8 @@ export default function EditarDocumentoPage() {
   const activeFileUrl = useLumiStore((state) => state.activeFileUrl);
   const setActiveDocument = useLumiStore((state) => state.setActiveDocument);
   const saveDocumentEdits = useLumiStore((state) => state.saveDocumentEdits);
+  const currentSessionId = useLumiStore((state) => state.currentSessionId);
+  const exportDocument = useLumiStore((state) => state.exportDocument);
 
   useEffect(() => {
     setActiveDocument(id);
@@ -217,6 +268,8 @@ export default function EditarDocumentoPage() {
       activeFileUrl={activeFileUrl}
       initialBarriers={diagnostic?.barriers ?? []}
       saveDocumentEdits={saveDocumentEdits}
+      currentSessionId={currentSessionId}
+      exportDocument={exportDocument}
     />
   );
 }
@@ -226,6 +279,8 @@ function EditorWorkspace({
   activeFileUrl,
   initialBarriers,
   saveDocumentEdits,
+  currentSessionId,
+  exportDocument,
 }: {
   document: LumiDocument;
   activeFileUrl: string | null;
@@ -235,8 +290,11 @@ function EditorWorkspace({
     modifiedContent: string,
     barriers: Barrier[],
   ) => void;
+  currentSessionId: string | null;
+  exportDocument: (sessionId: string, edits: ExportEdit[]) => Promise<Blob>;
 }) {
   const [editorInitialHtml] = useState(document.modifiedContent);
+  const router = useRouter();
   const editorRef = useRef<HTMLDivElement>(null);
   const [editedContent, setEditedContent] = useState(editorInitialHtml);
   const [barriers, setBarriers] = useState(() =>
@@ -255,13 +313,44 @@ function EditorWorkspace({
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfPreviewPageCount, setPdfPreviewPageCount] = useState(0);
   const [notice, setNotice] = useState("");
+  const [adaptingBarrierId, setAdaptingBarrierId] = useState<string | null>(
+    null,
+  );
+  const [savedName, setSavedName] = useState(document.name);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(document.name);
   const pdfContentRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const nameEditCancelledRef = useRef(false);
+  const adaptBarrier = useLumiStore((state) => state.adaptBarrier);
+  const renameDocument = useLumiStore((state) => state.renameDocument);
+  const folders = useLumiStore((state) => state.folders);
+  const allDocuments = useLumiStore((state) => state.documents);
+  const createFolder = useLumiStore((state) => state.createFolder);
+  const saveDocumentToFolder = useLumiStore(
+    (state) => state.saveDocumentToFolder,
+  );
 
   const visibleBarriers = barriers.filter(
     (barrier) => barrier.status !== "Ignorada",
   );
+  const pendingBarriers = barriers.filter(
+    (barrier) => barrier.status === "Pendiente",
+  );
+  const totalErrors = initialBarriers.length;
+  const pendingErrors = pendingBarriers.length;
+  const folderCounts = folders.reduce<Record<string, number>>(
+    (counts, folder) => {
+      counts[folder.id] = allDocuments.filter(
+        (item) => item.folderId === folder.id,
+      ).length;
+      return counts;
+    },
+    {},
+  );
   const isDirty =
     editedContent !== savedContent ||
+    document.name !== savedName ||
     JSON.stringify(barriers) !== JSON.stringify(savedBarriers);
 
   useEffect(() => {
@@ -271,6 +360,57 @@ function EditorWorkspace({
       }
     };
   }, [pdfPreviewUrl]);
+
+  useEffect(() => {
+    if (!isEditingName) {
+      return;
+    }
+
+    nameInputRef.current?.focus();
+    nameInputRef.current?.select();
+  }, [isEditingName]);
+
+  function startEditingName() {
+    nameEditCancelledRef.current = false;
+    setDraftName(document.name);
+    setIsEditingName(true);
+  }
+
+  function commitNameEdit() {
+    const nextName = draftName.trim();
+
+    if (!nextName || nextName === document.name) {
+      setDraftName(document.name);
+      setIsEditingName(false);
+      return;
+    }
+
+    renameDocument(document.id, nextName);
+    setIsEditingName(false);
+    setNotice("Se actualizó el nombre del documento.");
+  }
+
+  function handleNameBlur() {
+    if (nameEditCancelledRef.current) {
+      nameEditCancelledRef.current = false;
+      setDraftName(document.name);
+      setIsEditingName(false);
+      return;
+    }
+
+    commitNameEdit();
+  }
+
+  function handleNameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      nameEditCancelledRef.current = true;
+      event.currentTarget.blur();
+    }
+  }
 
   function getCurrentEditorHtml() {
     return sanitizeDocumentHtml(editorRef.current?.innerHTML ?? editedContent);
@@ -365,7 +505,7 @@ function EditorWorkspace({
     const currentContent = syncEditorContentFromDom();
     const nextContent = replaceTextInHtml(
       currentContent,
-      barrier.detectedFragment,
+      barrier.originalText ?? barrier.detectedFragment,
       acceptedSuggestion,
     );
     const alreadyPresent = containsFlexibleText(
@@ -410,6 +550,78 @@ function EditorWorkspace({
     setNotice("Se descartó la sugerencia.");
   }
 
+  async function handleGenerateSuggestion(barrier: Barrier) {
+    if (USE_MOCKS) {
+      setNotice("La generación con IA requiere el backend real.");
+      return;
+    }
+
+    if (!canAdaptBarrier(barrier)) {
+      setNotice(
+        "Esta barrera requiere un cambio de estructura, no una reescritura de texto.",
+      );
+      return;
+    }
+
+    const originalText = (
+      barrier.originalText ?? barrier.detectedFragment
+    ).trim();
+
+    if (!originalText) {
+      setNotice("No hay texto original para generar la sugerencia.");
+      return;
+    }
+
+    setAdaptingBarrierId(barrier.id);
+    setNotice("");
+
+    try {
+      const adaptation = await adaptBarrier({
+        type: getAdaptationType(barrier),
+        original_text: originalText,
+        rule_id: barrier.ruleId ?? null,
+        category: (barrier.category as Category | null) ?? null,
+        title: barrier.title ?? null,
+        detail: barrier.detail ?? null,
+        recommendation: barrier.recommendation ?? null,
+      });
+      const adaptedText = adaptation.adapted_text?.trim();
+
+      if (!adaptedText) {
+        setNotice(
+          adaptation.notes ??
+            "No se pudo generar el texto adaptado. Escribilo manualmente.",
+        );
+        return;
+      }
+
+      setBarriers((previous) =>
+        previous.map((item) =>
+          item.id === barrier.id
+            ? {
+                ...item,
+                suggestion: adaptedText,
+                adaptationNotes: adaptation.notes,
+              }
+            : item,
+        ),
+      );
+      setNotice(
+        adaptation.source === "local"
+          ? "Se generó una propuesta sin IA. Revisala antes de aplicarla."
+          : "Se generó una sugerencia con IA.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "No se pudo generar la sugerencia.",
+      );
+    } finally {
+      setAdaptingBarrierId(null);
+    }
+  }
+
   function handleUndo() {
     const previousSnapshot = undoStack.at(-1);
 
@@ -449,7 +661,26 @@ function EditorWorkspace({
     saveDocumentEdits(document.id, currentContent, cloneBarriers(barriers));
     setSavedContent(currentContent);
     setSavedBarriers(cloneBarriers(barriers));
+    setSavedName(document.name);
     setNotice("Se guardaron los cambios en esta sesión.");
+  }
+
+  function handleSaveToFolder(name: string, folderId: string | null) {
+    const currentContent = syncEditorContentFromDom();
+    const currentBarriers = cloneBarriers(barriers);
+
+    saveDocumentEdits(document.id, currentContent, currentBarriers);
+    saveDocumentToFolder(document.id, name, folderId);
+    setSavedContent(currentContent);
+    setSavedBarriers(currentBarriers);
+    setSavedName(name);
+    setIsExportModalOpen(false);
+    setNotice(`Se guardó "${name}" en Mis archivos.`);
+    router.push(
+      folderId
+        ? `/archivos?folderId=${encodeURIComponent(folderId)}`
+        : "/archivos",
+    );
   }
 
   async function handleDownloadPDF(
@@ -459,143 +690,173 @@ function EditorWorkspace({
     setNotice("");
 
     try {
-      const exportContainer = pdfContentRef.current;
-      if (!exportContainer) {
-        throw new Error("No hay contenido disponible para exportar.");
-      }
+      const sessionId = currentSessionId;
+      const edits = buildExportEdits(barriers);
 
-      const currentContent = syncEditorContentFromDom();
-      const exportContent = exportContainer.querySelector<HTMLElement>(
-        "[data-pdf-document]",
-      );
+      if (!USE_MOCKS && sessionId && edits.length > 0) {
+        const pdfBlob = await exportDocument(sessionId, edits);
+        const pdfUrl = URL.createObjectURL(pdfBlob);
 
-      if (!exportContent) {
-        throw new Error("No hay contenido disponible para exportar.");
-      }
-
-      exportContent.innerHTML = currentContent;
-
-      const images = Array.from(exportContainer.querySelectorAll("img"));
-      await Promise.all(
-        images.map(
-          (image) =>
-            new Promise<void>((resolve) => {
-              if (image.complete) {
-                resolve();
-              } else {
-                image.addEventListener("load", () => resolve(), { once: true });
-                image.addEventListener("error", () => resolve(), {
-                  once: true,
-                });
-              }
-            }),
-        ),
-      );
-
-      const pageCount = Math.max(
-        1,
-        Math.ceil(exportContainer.scrollHeight / PDF_PAGE_HEIGHT),
-      );
-
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      for (let index = 0; index < pageCount; index += 1) {
-        const canvas = await html2canvas(exportContainer, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-          x: 0,
-          y: index * PDF_PAGE_HEIGHT,
-          width: PDF_PAGE_WIDTH,
-          height: PDF_PAGE_HEIGHT,
-          windowWidth: PDF_PAGE_WIDTH,
-          windowHeight: PDF_PAGE_HEIGHT,
-          scrollX: 0,
-          scrollY: 0,
-          onclone: (clonedDocument) => {
-            const clonedContent = clonedDocument.querySelector<HTMLElement>(
-              "[data-pdf-document]",
-            );
-
-            clonedContent
-              ?.querySelectorAll<HTMLElement>("*")
-              .forEach((element) => {
-                element.style.color = "#1e293b";
-                element.style.fontFamily = "Georgia, serif";
-                element.style.lineHeight = "1.5";
-
-                if (element.tagName === "H1") {
-                  element.style.fontSize = "28px";
-                  element.style.fontWeight = "700";
-                  element.style.margin = "0 0 20px";
-                } else if (element.tagName === "H2") {
-                  element.style.fontSize = "21px";
-                  element.style.fontWeight = "700";
-                  element.style.margin = "24px 0 12px";
-                } else if (element.tagName === "H3") {
-                  element.style.fontSize = "17px";
-                  element.style.fontWeight = "700";
-                  element.style.margin = "20px 0 10px";
-                } else if (
-                  element.tagName === "P" ||
-                  element.tagName === "LI"
-                ) {
-                  element.style.fontSize = "14px";
-                  element.style.margin = "0 0 12px";
-                } else if (
-                  element.tagName === "UL" ||
-                  element.tagName === "OL"
-                ) {
-                  element.style.paddingLeft = "24px";
-                  element.style.margin = "0 0 16px";
-                } else if (element.tagName === "FIGURE") {
-                  element.style.margin = "24px 0";
-                } else if (element.tagName === "IMG") {
-                  element.style.display = "block";
-                  element.style.height = "auto";
-                  element.style.margin = "16px auto";
-                  element.style.maxWidth = "100%";
-                } else if (element.tagName === "FIGCAPTION") {
-                  element.style.color = "#475569";
-                  element.style.fontSize = "12px";
-                  element.style.textAlign = "center";
-                }
-              });
-          },
-        });
-        const image = canvas.toDataURL("image/png");
-
-        if (index > 0) {
-          pdf.addPage("a4", "portrait");
+        if (action === "download") {
+          const a = window.document.createElement("a");
+          a.href = pdfUrl;
+          a.download = `${document.name.replace(/\.pdf$/i, "")}_adaptado.pdf`;
+          a.click();
+          URL.revokeObjectURL(pdfUrl);
+          setIsExportModalOpen(false);
+          setNotice("Se generó el PDF adaptado desde el backend.");
+        } else {
+          setPdfPreviewUrl(pdfUrl);
+          setIsPreviewOpen(true);
         }
-
-        pdf.addImage(image, "PNG", 0, 0, pageWidth, pageHeight);
-        canvas.width = 0;
-        canvas.height = 0;
+        return;
       }
 
-      setPdfPreviewPageCount(pageCount);
-
-      if (action === "download") {
-        pdf.save("Documento_LUMI_Accesible.pdf");
-        setIsExportModalOpen(false);
-        setNotice("Se generó el PDF del documento editado.");
-      } else {
-        setPdfPreviewUrl(URL.createObjectURL(pdf.output("blob")));
-        setIsPreviewOpen(true);
-      }
+      await generatePdfWithJsPDF(action);
     } catch (error) {
       console.error("No se pudo generar el PDF:", error);
-      setNotice("No se pudo generar el PDF. Volvé a intentarlo.");
+      if (!USE_MOCKS) {
+        try {
+          await generatePdfWithJsPDF(action);
+        } catch {
+          setNotice("No se pudo generar el PDF. Volvé a intentarlo.");
+        }
+      } else {
+        setNotice("No se pudo generar el PDF. Volvé a intentarlo.");
+      }
     } finally {
       setIsGeneratingPdf(false);
+    }
+  }
+
+  async function generatePdfWithJsPDF(
+    action: "download" | "preview" = "download",
+  ) {
+    const exportContainer = pdfContentRef.current;
+    if (!exportContainer) {
+      throw new Error("No hay contenido disponible para exportar.");
+    }
+
+    const currentContent = syncEditorContentFromDom();
+    const exportContent = exportContainer.querySelector<HTMLElement>(
+      "[data-pdf-document]",
+    );
+
+    if (!exportContent) {
+      throw new Error("No hay contenido disponible para exportar.");
+    }
+
+    exportContent.innerHTML = currentContent;
+
+    const images = Array.from(exportContainer.querySelectorAll("img"));
+    await Promise.all(
+      images.map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            if (image.complete) {
+              resolve();
+            } else {
+              image.addEventListener("load", () => resolve(), { once: true });
+              image.addEventListener("error", () => resolve(), {
+                once: true,
+              });
+            }
+          }),
+      ),
+    );
+
+    const pageCount = Math.max(
+      1,
+      Math.ceil(exportContainer.scrollHeight / PDF_PAGE_HEIGHT),
+    );
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    for (let index = 0; index < pageCount; index += 1) {
+      const canvas = await html2canvas(exportContainer, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        x: 0,
+        y: index * PDF_PAGE_HEIGHT,
+        width: PDF_PAGE_WIDTH,
+        height: PDF_PAGE_HEIGHT,
+        windowWidth: PDF_PAGE_WIDTH,
+        windowHeight: PDF_PAGE_HEIGHT,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDocument) => {
+          const clonedContent = clonedDocument.querySelector<HTMLElement>(
+            "[data-pdf-document]",
+          );
+
+          clonedContent
+            ?.querySelectorAll<HTMLElement>("*")
+            .forEach((element) => {
+              element.style.color = "#1e293b";
+              element.style.fontFamily = "Georgia, serif";
+              element.style.lineHeight = "1.5";
+
+              if (element.tagName === "H1") {
+                element.style.fontSize = "28px";
+                element.style.fontWeight = "700";
+                element.style.margin = "0 0 20px";
+              } else if (element.tagName === "H2") {
+                element.style.fontSize = "21px";
+                element.style.fontWeight = "700";
+                element.style.margin = "24px 0 12px";
+              } else if (element.tagName === "H3") {
+                element.style.fontSize = "17px";
+                element.style.fontWeight = "700";
+                element.style.margin = "20px 0 10px";
+              } else if (element.tagName === "P" || element.tagName === "LI") {
+                element.style.fontSize = "14px";
+                element.style.margin = "0 0 12px";
+              } else if (element.tagName === "UL" || element.tagName === "OL") {
+                element.style.paddingLeft = "24px";
+                element.style.margin = "0 0 16px";
+              } else if (element.tagName === "FIGURE") {
+                element.style.margin = "24px 0";
+              } else if (element.tagName === "IMG") {
+                element.style.display = "block";
+                element.style.height = "auto";
+                element.style.margin = "16px auto";
+                element.style.maxWidth = "100%";
+              } else if (element.tagName === "FIGCAPTION") {
+                element.style.color = "#475569";
+                element.style.fontSize = "12px";
+                element.style.textAlign = "center";
+              }
+            });
+        },
+      });
+      const image = canvas.toDataURL("image/png");
+
+      if (index > 0) {
+        pdf.addPage("a4", "portrait");
+      }
+
+      pdf.addImage(image, "PNG", 0, 0, pageWidth, pageHeight);
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+
+    setPdfPreviewPageCount(pageCount);
+
+    if (action === "download") {
+      pdf.save(`${document.name.replace(/\.pdf$/i, "")}_adaptado.pdf`);
+      setIsExportModalOpen(false);
+      setNotice("Se generó el PDF del documento editado (fallback local).");
+    } else {
+      setPdfPreviewUrl(URL.createObjectURL(pdf.output("blob")));
+      setIsPreviewOpen(true);
     }
   }
 
@@ -617,7 +878,28 @@ function EditorWorkspace({
               <FileText aria-hidden="true" className="size-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="page-title min-w-0 truncate">{document.name}</h1>
+              <h1 className="page-title min-w-0 truncate">
+                {isEditingName ? (
+                  <input
+                    ref={nameInputRef}
+                    value={draftName}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    onBlur={handleNameBlur}
+                    onKeyDown={handleNameKeyDown}
+                    aria-label="Nombre del documento"
+                    className="page-title w-full min-w-0 rounded border border-blue-400 bg-white px-1 py-0 outline-none ring-2 ring-blue-100"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    title="Hacé clic para renombrar"
+                    onClick={startEditingName}
+                    className="-mx-1 block max-w-full cursor-pointer truncate rounded px-1 text-left transition hover:bg-slate-100 hover:ring-1 hover:ring-slate-200 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                  >
+                    {document.name}
+                  </button>
+                )}
+              </h1>
               <p className="truncate text-xs text-slate-500">
                 {document.size} <span aria-hidden="true">·</span> Última
                 modificación: {document.date}
@@ -656,20 +938,41 @@ function EditorWorkspace({
         <div className="grid min-h-[70svh] flex-1 grid-cols-1 gap-3 xl:h-[calc(100svh-16rem)] xl:min-h-120 xl:grid-cols-[minmax(18rem,0.33fr)_minmax(0,0.67fr)]">
           <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
             <header className="border-b border-slate-200 p-3 sm:p-4">
-              <div className="flex items-start gap-2.5 rounded-md bg-red-50 p-3">
-                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-red-600 text-white">
-                  <span aria-hidden="true" className="text-sm font-bold">
-                    !
-                  </span>
+              <div
+                role="status"
+                className={`flex items-start gap-2.5 rounded-md p-3 ${
+                  pendingErrors === 0 ? "bg-emerald-50" : "bg-red-50"
+                }`}
+              >
+                <span
+                  className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-white ${
+                    pendingErrors === 0 ? "bg-emerald-600" : "bg-red-600"
+                  }`}
+                >
+                  {pendingErrors === 0 ? (
+                    <CheckCircle2 aria-hidden="true" className="size-4" />
+                  ) : (
+                    <span aria-hidden="true" className="text-sm font-bold">
+                      !
+                    </span>
+                  )}
                 </span>
                 <div className="min-w-0">
-                  <h2 className="text-sm font-bold text-red-900">
-                    Se detectaron {barriers.length} errores que requieren
-                    revisión
+                  <h2
+                    className={`text-sm font-bold ${
+                      pendingErrors === 0 ? "text-emerald-900" : "text-red-900"
+                    }`}
+                  >
+                    {pendingErrors === 0
+                      ? totalErrors === 0
+                        ? "No se detectaron errores en este documento."
+                        : `¡Revisaste los ${totalErrors} errores detectados!`
+                      : `Se detectaron ${pendingErrors}/${totalErrors} errores que requieren revisión`}
                   </h2>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Revisá cada sugerencia y decidí si querés aplicarla al
-                    documento.
+                    {pendingErrors === 0
+                      ? "El documento está listo para guardar o descargar."
+                      : "Revisá cada sugerencia y decidí si querés aplicarla al documento."}
                   </p>
                 </div>
               </div>
@@ -678,7 +981,7 @@ function EditorWorkspace({
                 aria-label="Resumen por severidad"
               >
                 {(["Alta", "Media", "Baja"] as const).map((severity) => {
-                  const count = barriers.filter(
+                  const count = pendingBarriers.filter(
                     (barrier) => barrier.severity === severity,
                   ).length;
 
@@ -709,6 +1012,9 @@ function EditorWorkspace({
                     barrier={barrier}
                     onApply={handleApply}
                     onDismiss={handleDismiss}
+                    onGenerateSuggestion={handleGenerateSuggestion}
+                    isAdapting={adaptingBarrierId === barrier.id}
+                    canAdapt={canAdaptBarrier(barrier)}
                   />
                 ))
               ) : (
@@ -878,16 +1184,20 @@ function EditorWorkspace({
         </Dialog.Portal>
       </Dialog.Root>
 
-      <ExportModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        onDownloadPdf={() => void handleDownloadPDF("download")}
-        isGeneratingPdf={isGeneratingPdf}
-        onSaveToApp={() => {
-          handleSaveChanges();
-          setIsExportModalOpen(false);
-        }}
-      />
+      {isExportModalOpen && (
+        <ExportModal
+          isOpen
+          onClose={() => setIsExportModalOpen(false)}
+          onDownloadPdf={() => void handleDownloadPDF("download")}
+          isGeneratingPdf={isGeneratingPdf}
+          onSaveToApp={handleSaveToFolder}
+          onCreateFolder={(name) => createFolder({ name })}
+          documentName={document.name}
+          initialFolderId={document.folderId}
+          folders={folders}
+          folderCounts={folderCounts}
+        />
+      )}
     </main>
   );
 }

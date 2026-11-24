@@ -395,7 +395,9 @@ export default function DiagnosticoGeneralPage() {
                         <span className="min-w-0 flex-1">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-slate-900">
-                              {BARRIER_TITLES[barrier.type] ?? barrier.type}
+                              {barrier.title ??
+                                BARRIER_TITLES[barrier.type] ??
+                                barrier.type}
                             </span>
                             <span
                               className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${SEVERITY_STYLES[barrier.severity]}`}
@@ -434,10 +436,12 @@ export default function DiagnosticoGeneralPage() {
                         </div>
                         <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
                           <p className="text-xs font-semibold uppercase text-blue-800">
-                            Sugerencia
+                            Explicación
                           </p>
                           <p className="mt-2 text-sm leading-6 text-blue-950">
-                            {barrier.suggestion}
+                            {barrier.detail ??
+                              barrier.recommendation ??
+                              barrier.suggestion}
                           </p>
                         </div>
                         <p className="flex items-start gap-2 text-xs leading-5 text-slate-500">
