@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
@@ -26,7 +26,7 @@ interface StepState {
   label: string;
 }
 
-export default function AnalizandoPage() {
+function AnalizandoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
@@ -284,5 +284,19 @@ export default function AnalizandoPage() {
         Por favor, no cierres esta ventana mientras procesamos tu documento.
       </p>
     </main>
+  );
+}
+
+export default function AnalizandoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid min-h-svh place-items-center bg-[#f7fafc] text-sm text-slate-500">
+          Preparando el análisis...
+        </div>
+      }
+    >
+      <AnalizandoContent />
+    </Suspense>
   );
 }
