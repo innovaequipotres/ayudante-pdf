@@ -58,6 +58,48 @@ El archivo `.env` está en `.gitignore` y **no debe subirse al repositorio**.
 | `OPENROUTER_TIMEOUT_SECONDS` | Timeout de las llamadas a OpenRouter (segundos) | `30`                                                                                      |
 | `MAX_UPLOAD_MB`              | Tamaño máximo de PDF permitido (MB)             | `25`                                                                                      |
 | `CORS_ORIGINS`               | Orígenes permitidos, separados por coma         | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000` |
+| `DATABASE_URL`               | URL de conexión de la app (driver psycopg 3)    | _(sin valor por defecto)_                                                                 |
+| `TEST_DATABASE_URL`          | URL de la base de tests (`_test` al final)      | _(sin valor por defecto)_                                                                 |
+| `POSTGRES_USER`              | Usuario de PostgreSQL en Docker                 | _(obligatorio en `.env`)_                                                                 |
+| `POSTGRES_PASSWORD`          | Clave de PostgreSQL en Docker                   | _(obligatorio en `.env`)_                                                                 |
+| `POSTGRES_DB`                | Nombre de la base de desarrollo                 | _(obligatorio en `.env`)_                                                                 |
+| `POSTGRES_PORT`              | Puerto local publicado por Docker               | `5433` en `.env.example` (fallback Compose: `5432`)                                       |
+
+## Base de datos (PostgreSQL)
+
+La infraestructura de persistencia usa PostgreSQL 18 en Docker. Todavía no hay
+modelos ni tablas de negocio: esta sección deja lista la conexión y las
+migraciones.
+
+```bash
+cp .env.example .env   # cambiá POSTGRES_PASSWORD antes de usar el proyecto
+docker compose up -d --wait
+alembic upgrade head
+pytest
+```
+
+`docker compose down` conserva los datos porque usa un volumen nombrado;
+`docker compose down -v` lo borra. La base de tests es `<POSTGRES_DB>_test` y
+se crea con `docker/initdb/01-create-test-db.sh` la primera vez que se
+inicializa el volumen. Si el volumen ya existía, creala a mano:
+
+```bash
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "CREATE DATABASE \"${POSTGRES_DB}_test\" OWNER \"$POSTGRES_USER\";"'
+```
+
+`DATABASE_URL` y `TEST_DATABASE_URL` deben usar `postgresql+psycopg://`
+(psycopg 3). Mantené las credenciales de las URLs sincronizadas con
+`POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_PORT`. El ejemplo usa el puerto
+`5433` para no chocar con un PostgreSQL local en `5432`; si cambiás
+`POSTGRES_PORT`, actualizá también el puerto de ambas URLs.
+
+Las migraciones viven en `alembic/`. Para crear una nueva revisión:
+
+```bash
+alembic revision -m "descripcion"
+alembic upgrade head
+```
 
 ## Ejecutar el proyecto
 
@@ -534,6 +576,10 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/sessions/<session_id>/export \
 pytest
 ```
 
+Los tests de base de datos usan `TEST_DATABASE_URL` y fallan de forma explícita
+si apunta a la misma base que `DATABASE_URL` o si el nombre de la base no
+termina en `_test`.
+
 ## Formato de errores
 
 Todas las respuestas de error de la API usan el formato:
@@ -568,6 +614,7 @@ backend/
 │   │           └── sessions.py    # Endpoints de sesiones
 │   ├── core/
 │   │   ├── config.py              # Configuración y variables de entorno
+│   │   ├── database.py            # Engine, sesión y Base de SQLAlchemy
 │   │   └── exceptions.py          # Errores globales con formato {code, message}
 │   ├── processors/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
@@ -606,6 +653,7 @@ backend/
 │   ├── test_ai_analysis.py
 │   ├── test_ai_provider.py
 │   ├── test_content.py
+│   ├── test_database.py
 │   ├── test_diagnosis.py
 │   ├── test_export.py
 │   ├── test_export_api.py
@@ -616,7 +664,17 @@ backend/
 │   ├── test_scoring.py
 │   ├── test_sessions.py
 │   └── test_text_processor.py
+├── alembic/
+│   ├── env.py                     # Toma DATABASE_URL y Base.metadata
+│   └── versions/
+│       └── *_baseline.py          # Revisión baseline vacía
+├── docker/
+│   └── initdb/
+│       └── 01-create-test-db.sh   # Crea la base _test al inicializar el volumen
+├── alembic.ini
+├── docker-compose.yml
 ├── .env.example
+├── .gitattributes
 ├── requirements.txt
 ├── requirements-dev.txt
 └── pytest.ini
