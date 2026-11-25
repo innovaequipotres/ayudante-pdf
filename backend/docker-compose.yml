@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?Definí POSTGRES_USER en backend/.env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Definí POSTGRES_PASSWORD en backend/.env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Definí POSTGRES_DB en backend/.env}"
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Desde PostgreSQL 18 el VOLUME de la imagen es /var/lib/postgresql
+      # (PGDATA=/var/lib/postgresql/18/docker), no /var/lib/postgresql/data.
+      - postgres_data:/var/lib/postgresql
+      # Solo se ejecuta la primera vez que se inicializa el volumen.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:
