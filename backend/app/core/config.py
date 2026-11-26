@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     database_url: str = ""
     test_database_url: str = ""
 
+    # Secreto para firmar los JWT. Sin valor por defecto inseguro: si falta, la
+    # app arranca pero el login y la validación de tokens fallan con un error
+    # claro. Generar con: python -c "import secrets; print(secrets.token_urlsafe(64))"
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 1440
+
     @field_validator("database_url", "test_database_url")
     @classmethod
     def validate_postgres_url(cls, value: str) -> str:
