@@ -59,6 +59,7 @@ El archivo `.env` está en `.gitignore` y **no debe subirse al repositorio**.
 | `MAX_UPLOAD_MB`              | Tamaño máximo de PDF permitido (MB)             | `25`                                                                                      |
 | `CORS_ORIGINS`               | Orígenes permitidos, separados por coma         | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000` |
 | `DATABASE_URL`               | URL de conexión de la app (driver psycopg 3)    | _(sin valor por defecto)_                                                                 |
+| `DATABASE_URL_UNPOOLED`      | URL directa de Neon para Alembic (producción)   | _(vacío; Alembic usa `DATABASE_URL`)_                                                     |
 | `TEST_DATABASE_URL`          | URL de la base de tests (`_test` al final)      | _(sin valor por defecto)_                                                                 |
 | `POSTGRES_USER`              | Usuario de PostgreSQL en Docker                 | _(obligatorio en `.env`)_                                                                 |
 | `POSTGRES_PASSWORD`          | Clave de PostgreSQL en Docker                   | _(obligatorio en `.env`)_                                                                 |
@@ -67,9 +68,9 @@ El archivo `.env` está en `.gitignore` y **no debe subirse al repositorio**.
 
 ## Base de datos (PostgreSQL)
 
-La infraestructura de persistencia usa PostgreSQL 18 en Docker. Todavía no hay
-modelos ni tablas de negocio: esta sección deja lista la conexión y las
-migraciones.
+El desarrollo local usa PostgreSQL 18 en Docker. Producción usa una base de
+Neon desde Render; el `.env` local **nunca** apunta a Neon. El esquema se
+versiona con Alembic y se aplica con `alembic upgrade head`.
 
 ```bash
 cp .env.example .env   # cambiá POSTGRES_PASSWORD antes de usar el proyecto
@@ -88,11 +89,17 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -c "CREATE DATABASE \"${POSTGRES_DB}_test\" OWNER \"$POSTGRES_USER\";"'
 ```
 
-`DATABASE_URL` y `TEST_DATABASE_URL` deben usar `postgresql+psycopg://`
-(psycopg 3). Mantené las credenciales de las URLs sincronizadas con
-`POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_PORT`. El ejemplo usa el puerto
-`5433` para no chocar con un PostgreSQL local en `5432`; si cambiás
-`POSTGRES_PORT`, actualizá también el puerto de ambas URLs.
+`DATABASE_URL`, `DATABASE_URL_UNPOOLED` y `TEST_DATABASE_URL` deben usar
+`postgresql+psycopg://` (psycopg 3). Mantené las credenciales de las URLs
+sincronizadas con `POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_PORT`. El
+ejemplo usa el puerto `5433` para no chocar con un PostgreSQL local en `5432`;
+si cambiás `POSTGRES_PORT`, actualizá también el puerto de ambas URLs.
+
+En local, `DATABASE_URL` apunta a Docker y `DATABASE_URL_UNPOOLED` queda vacía:
+Alembic usa `DATABASE_URL`. En Render, `DATABASE_URL` es la URL _pooled_ de
+Neon (host con `-pooler`) y `DATABASE_URL_UNPOOLED` es la _directa_ (sin
+`-pooler`), que Alembic usa para migrar. Ver
+[Deploy en Render + Neon](#deploy-en-render--neon).
 
 Las migraciones viven en `alembic/`. Para crear una nueva revisión:
 
@@ -100,6 +107,73 @@ Las migraciones viven en `alembic/`. Para crear una nueva revisión:
 alembic revision -m "descripcion"
 alembic upgrade head
 ```
+
+## Deploy en Render + Neon
+
+Producción usa el backend en Render y PostgreSQL de Neon. El desarrollo local
+sigue usando el Postgres de Docker; `backend/.env` nunca apunta a Neon.
+
+### Variables de entorno en Render
+
+| Variable                | Valor                                                                     |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `DATABASE_URL`          | URL **pooled** de Neon (host con `-pooler`), con `postgresql+psycopg://`. |
+| `DATABASE_URL_UNPOOLED` | URL **directa** de Neon (sin `-pooler`), para Alembic.                    |
+| `JWT_SECRET`            | Secreto propio de producción.                                             |
+| `AI_PROVIDER` y claves  | Según el proveedor elegido.                                               |
+| `CORS_ORIGINS`          | Dominio del frontend productivo.                                          |
+| `MAX_UPLOAD_MB`         | Tamaño máximo de PDF.                                                     |
+
+No subir estas credenciales al repo. Si una URL se filtra, rotar la password
+en Neon y actualizar la variable en Render.
+
+### Configuración del servicio
+
+- **Branch:** `develop` (con Auto-Deploy en Off). Si el servicio está vinculado
+  a otra rama, usar esa.
+- **Auto-Deploy:** Off. Los merges a `develop` no tocan producción.
+- **Root Directory:** `backend`
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Health Check Path:** `/health`
+
+El Start Command aplica las migraciones antes de levantar la app. Es
+idempotente y también corre cuando Render despierta el servicio.
+
+### Deploy manual
+
+1. Mergear a `develop` el bloque ya probado.
+2. En Render: **Manual Deploy → Deploy latest commit**.
+3. Esperar el build y el arranque (incluye `alembic upgrade head`).
+4. Verificar `https://<servicio>.onrender.com/health`.
+5. Probar registro/login y el flujo que corresponda.
+6. Si algo falla, **Manual Deploy** del commit anterior.
+
+### Migraciones manuales
+
+Desde `backend/`, con una URL temporal (no guardarla en `.env`):
+
+```bash
+read -rsp "Neon URL directa: " NEON_URL; echo
+DATABASE_URL_UNPOOLED="$NEON_URL" .venv/bin/alembic upgrade head
+DATABASE_URL_UNPOOLED="$NEON_URL" .venv/bin/alembic current
+unset NEON_URL
+```
+
+Si la base ya tenía tablas creadas fuera de Alembic, no fuerces el `upgrade`:
+revisá `alembic current` y consultá antes de hacer `stamp`.
+
+### Servicio dormido
+
+Render free duerme el servicio tras unos 15 minutos sin tráfico. La primera
+request puede tardar 30–60 segundos. Abrí `/health` para despertarlo y esperá
+la respuesta antes de usar la app. Neon también suspende el compute: la
+primera consulta puede tardar unos segundos.
+
+> **Persistencia pendiente:** esta issue conecta Neon y migra `users`, pero las
+> sesiones, el PDF original, el contenido extraído y el diagnóstico siguen en
+> memoria. Se pierden al reiniciar el servicio. La persistencia de esas
+> entidades queda para una issue aparte.
 
 ## Ejecutar el proyecto
 
@@ -203,10 +277,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/sessions/<session_id>/extract
 curl http://127.0.0.1:8000/api/v1/sessions/<session_id>/content
 ```
 
-> **Almacenamiento temporal:** por ahora las sesiones, los contenidos extraídos
-> y los diagnósticos viven en memoria del proceso. Se pierden al reiniciar el
-> servidor y no se comparten entre workers. Más adelante se reemplazarán por una
-> base de datos.
+> **Almacenamiento temporal:** las sesiones, los contenidos extraídos y los
+> diagnósticos siguen viviendo en memoria del proceso. Se pierden al reiniciar
+> el servidor y no se comparten entre workers. BE-25 conecta Neon y persiste
+> `users`, pero la persistencia de estas entidades queda para una issue aparte.
 
 ## Reglas automáticas
 
