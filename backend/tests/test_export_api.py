@@ -70,14 +70,23 @@ def _save_custom_content(
     blocks: list[ContentBlock],
     pages: list[PageSize],
 ) -> None:
-    session = session_service.get_session(UUID(session_id))
-    content = content_service.build_content(
-        session,
-        blocks,
-        page_count=len(pages),
-        pages=pages,
-    )
-    session_service.save_extracted(content)
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.core.config import settings
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        session = session_service.get_session(db, UUID(session_id))
+        content = content_service.build_content(
+            session,
+            blocks,
+            page_count=len(pages),
+            pages=pages,
+        )
+        session_service.save_extracted(content, db=db)
+        db.commit()
+    engine.dispose()
 
 
 def _export(

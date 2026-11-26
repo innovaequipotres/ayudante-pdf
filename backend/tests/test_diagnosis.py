@@ -11,7 +11,11 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
+from app.models.document import Document
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from app.schemas.ai import AiAnalysisResult, AiStatus
 from app.schemas.observation import (
     Category,
@@ -362,17 +366,23 @@ def test_completed_session_does_not_regress(client: TestClient) -> None:
     session = _create_text_session(client)
     session_id = UUID(session["session_id"])
     client.post(_analyze_url(session_id, use_ai=False))
-    stored = session_service.get_session(session_id)
-    session_service._sessions[session_id] = stored.model_copy(
-        update={"status": SessionStatus.COMPLETED}
-    )
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        document = db.get(Document, session_id)
+        document.status = SessionStatus.COMPLETED.value
+        db.commit()
+    engine.dispose()
 
     client.post(_analyze_url(session_id, use_ai=False))
 
-    assert (
-        session_service.get_session(session_id).status
-        is SessionStatus.COMPLETED
-    )
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        assert (
+            session_service.get_session(db, session_id).status
+            is SessionStatus.COMPLETED
+        )
+    engine.dispose()
 
 
 def test_material_without_observations_scores_100(

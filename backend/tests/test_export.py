@@ -11,6 +11,7 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen.canvas import Canvas
 
+from app.core.config import settings
 from app.core.exceptions import AppError
 from app.schemas.content import BBox, BlockType, ContentBlock, PageSize
 from app.schemas.export import ExportEdit, ExportRequest
@@ -65,14 +66,21 @@ def _create_session_with_content(
     filename: str = "clase.pdf",
 ) -> tuple[Any, Any]:
     """Crea una sesión PDF y guarda un contenido extraído controlado."""
-    session = session_service.create_from_file(filename, pdf)
-    content = content_service.build_content(
-        session,
-        blocks,
-        page_count=len(pages),
-        pages=pages,
-    )
-    session_service.save_extracted(content)
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        session = session_service.create_from_file(db, filename, pdf)
+        content = content_service.build_content(
+            session,
+            blocks,
+            page_count=len(pages),
+            pages=pages,
+        )
+        session_service.save_extracted(content, db=db)
+        db.commit()
+    engine.dispose()
     return session, content
 
 
@@ -118,10 +126,18 @@ def _export(
     session_id: Any,
     edits: list[ExportEdit],
 ) -> export_service.ExportResult:
-    return export_service.export_pdf(
-        session_id,
-        ExportRequest(edits=edits),
-    )
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        result = export_service.export_pdf(
+            db,
+            session_id,
+            ExportRequest(edits=edits),
+        )
+    engine.dispose()
+    return result
 
 
 def test_export_keeps_page_count_and_page_sizes() -> None:
@@ -443,17 +459,25 @@ def test_export_block_without_bbox() -> None:
 
 
 def test_export_with_invalid_pdf() -> None:
-    session = session_service.create_from_file(
-        "roto.pdf",
-        b"%PDF-1.4\nContenido roto sin objetos validos\n%%EOF\n",
-    )
-    content = content_service.build_content(
-        session,
-        [_paragraph_block("Texto original")],
-        page_count=1,
-        pages=_pages(1),
-    )
-    session_service.save_extracted(content)
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        session = session_service.create_from_file(
+            db,
+            "roto.pdf",
+            b"%PDF-1.4\nContenido roto sin objetos validos\n%%EOF\n",
+        )
+        content = content_service.build_content(
+            session,
+            [_paragraph_block("Texto original")],
+            page_count=1,
+            pages=_pages(1),
+        )
+        session_service.save_extracted(content, db=db)
+        db.commit()
+    engine.dispose()
 
     with pytest.raises(AppError) as error:
         _export(
@@ -466,10 +490,15 @@ def test_export_with_invalid_pdf() -> None:
 
 
 def test_export_unavailable_for_text_session() -> None:
-    session = session_service.create_from_text(
-        TextInput(title="Biología", text="# Tema\n\nUn texto.")
-    )
-    content_service.extract(session.session_id)
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        session = session_service.create_from_text(db, TextInput(title="Biología", text="# Tema\n\nUn texto."))
+        content_service.extract(db, session.session_id)
+        db.commit()
+    engine.dispose()
 
     with pytest.raises(AppError) as error:
         _export(
@@ -482,10 +511,18 @@ def test_export_unavailable_for_text_session() -> None:
 
 
 def test_export_requires_extracted_content() -> None:
-    session = session_service.create_from_file(
-        "clase.pdf",
-        _pdf_with_original_text(),
-    )
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        session = session_service.create_from_file(
+            db,
+            "clase.pdf",
+            _pdf_with_original_text(),
+        )
+        db.commit()
+    engine.dispose()
 
     with pytest.raises(AppError) as error:
         _export(
