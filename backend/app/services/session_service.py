@@ -1,48 +1,122 @@
 """Lógica de negocio de las sesiones.
 
-El almacenamiento es temporal y en memoria: más adelante se reemplazará por una
-base de datos. Todo el acceso a los datos pasa por las funciones de este módulo,
-de modo que los endpoints nunca manipulan los diccionarios directamente.
+Las sesiones se persisten en PostgreSQL a través de los modelos de BE-17 y
+del almacenamiento de PDFs de BE-18. Este módulo es el único punto de acceso
+a los datos de sesiones; los endpoints no manipulan las tablas directamente.
 """
 
-from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Any, Iterator
+from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import SessionLocal
 from app.core.exceptions import AppError
+from app.models.document import Document
+from app.models.document_file import DocumentFile
+from app.models.user import User
 from app.schemas.content import ExtractedContent
 from app.schemas.diagnosis import Diagnosis
-from app.schemas.session import SessionResponse, SessionStatus, SourceType, TextInput
+from app.schemas.session import (
+    SessionResponse,
+    SessionStatus,
+    SourceType,
+    TextInput,
+)
+from app.services import storage
 
-_sessions: dict[UUID, SessionResponse] = {}
-_raw_contents: dict[UUID, bytes | str] = {}
+# Contenido extraído y diagnósticos aún viven en memoria (sus repositorios
+# se migrarán en issues posteriores). Solo se eliminan las sesiones y los
+# contenidos crudos, que ahora persisten en Postgres.
 _extracted_contents: dict[UUID, ExtractedContent] = {}
 _diagnoses: dict[UUID, Diagnosis] = {}
 
+_SYSTEM_USER_EMAIL = "sessions@ayudante-pdf.local"
 
-def _create_session(
-    source_type: SourceType,
-    filename: str | None,
-    size_bytes: int,
-    raw_content: bytes | str,
-) -> SessionResponse:
-    """Crea, almacena y devuelve una sesión nueva en estado ``uploaded``."""
-    session = SessionResponse(
-        session_id=uuid4(),
-        source_type=source_type,
-        filename=filename,
-        size_bytes=size_bytes,
-        status=SessionStatus.UPLOADED,
-        created_at=datetime.now(UTC),
+
+@contextmanager
+def _db_session(db: Session | None) -> Iterator[Session]:
+    """Entrega una sesión usable, creando una propia si no se proporcionó."""
+    if db is None:
+        session = SessionLocal()
+        owns = True
+    else:
+        session = db
+        owns = False
+    try:
+        yield session
+    finally:
+        if owns:
+            session.close()
+
+
+def _resolve_uuid(value: Any) -> UUID:
+    if isinstance(value, UUID):
+        return value
+    return UUID(str(value))
+
+
+def _get_or_create_owner(db: Session) -> User:
+    """Obtiene (o crea) el usuario sistema dueño de las sesiones anónimas."""
+    user = db.query(User).filter(User.email == _SYSTEM_USER_EMAIL).first()
+    if user is None:
+        user = User(
+            first_name="Sistema",
+            last_name="Sesiones",
+            email=_SYSTEM_USER_EMAIL,
+            password_hash="!",
+        )
+        db.add(user)
+        db.flush()
+    return user
+
+
+def _to_response(document: Document) -> SessionResponse:
+    return SessionResponse(
+        session_id=document.id,
+        source_type=SourceType(document.source_type),
+        filename=document.filename,
+        size_bytes=document.size_bytes,
+        status=SessionStatus(document.status),
+        created_at=document.created_at,
     )
-    _sessions[session.session_id] = session
-    _raw_contents[session.session_id] = raw_content
-    return session
 
 
-def create_from_file(filename: str, content: bytes) -> SessionResponse:
+def _resolve_create_from_file(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[Session, str, bytes, bool]:
+    db = kwargs.get("db")
+    filename = kwargs.get("filename")
+    content = kwargs.get("content")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif isinstance(item, str) and filename is None:
+            filename = item
+        elif isinstance(item, (bytes, bytearray)) and content is None:
+            content = bytes(item)
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+    if filename is None:
+        filename = ""
+    if content is None:
+        content = b""
+    return db, filename, content, owns
+
+
+def create_from_file(*args: Any, **kwargs: Any) -> SessionResponse:
     """Valida un archivo PDF y crea una sesión a partir de él."""
+    db, filename, content, owns = _resolve_create_from_file(args, kwargs)
+
+    # Validaciones (sin tocar la DB).
     if not filename.lower().endswith(".pdf"):
+        if owns:
+            db.close()
         raise AppError(
             code="unsupported_format",
             message="Por ahora solo se aceptan archivos PDF.",
@@ -50,6 +124,8 @@ def create_from_file(filename: str, content: bytes) -> SessionResponse:
         )
 
     if not content:
+        if owns:
+            db.close()
         raise AppError(
             code="empty_content",
             message="El archivo está vacío.",
@@ -57,6 +133,8 @@ def create_from_file(filename: str, content: bytes) -> SessionResponse:
         )
 
     if len(content) > settings.max_upload_bytes:
+        if owns:
+            db.close()
         raise AppError(
             code="file_too_large",
             message=(
@@ -66,23 +144,67 @@ def create_from_file(filename: str, content: bytes) -> SessionResponse:
         )
 
     if not content.startswith(b"%PDF"):
+        if owns:
+            db.close()
         raise AppError(
             code="invalid_pdf",
             message="El archivo no es un PDF válido.",
             status_code=400,
         )
 
-    return _create_session(
-        source_type=SourceType.PDF,
-        filename=filename,
-        size_bytes=len(content),
-        raw_content=content,
-    )
+    try:
+        owner = _get_or_create_owner(db)
+        document = Document(
+            owner_id=owner.id,
+            source_type=SourceType.PDF.value,
+            filename=filename,
+            size_bytes=len(content),
+            status=SessionStatus.UPLOADED.value,
+        )
+        db.add(document)
+        db.flush()
+
+        storage.save_pdf(db, document.id, content)
+
+        db.commit()
+        db.refresh(document)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns:
+            db.close()
+
+    return _to_response(document)
 
 
-def create_from_text(payload: TextInput) -> SessionResponse:
+def _resolve_create_from_text(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[Session, TextInput, bool]:
+    db = kwargs.get("db")
+    payload = kwargs.get("payload")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif isinstance(item, TextInput) and payload is None:
+            payload = item
+        elif isinstance(item, dict) and payload is None:
+            payload = TextInput.model_validate(item)
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+    if payload is None:
+        raise AppError(code="empty_content", message="El texto no puede estar vacío.", status_code=400)
+    return db, payload, owns
+
+
+def create_from_text(*args: Any, **kwargs: Any) -> SessionResponse:
     """Valida un texto pegado y crea una sesión a partir de él."""
+    db, payload, owns = _resolve_create_from_text(args, kwargs)
+
     if not payload.text.strip():
+        if owns:
+            db.close()
         raise AppError(
             code="empty_content",
             message="El texto no puede estar vacío.",
@@ -91,63 +213,222 @@ def create_from_text(payload: TextInput) -> SessionResponse:
 
     title = payload.title.strip() if payload.title else None
 
-    return _create_session(
-        source_type=SourceType.TEXT,
-        filename=title or None,
-        size_bytes=len(payload.text.encode("utf-8")),
-        raw_content=payload.text,
-    )
+    try:
+        owner = _get_or_create_owner(db)
+        document = Document(
+            owner_id=owner.id,
+            source_type=SourceType.TEXT.value,
+            filename=title or None,
+            size_bytes=len(payload.text.encode("utf-8")),
+            status=SessionStatus.UPLOADED.value,
+        )
+        db.add(document)
+        db.flush()
+
+        db.add(
+            DocumentFile(
+                document_id=document.id,
+                owner_id=owner.id,
+                content_text=payload.text,
+            )
+        )
+
+        db.commit()
+        db.refresh(document)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns:
+            db.close()
+
+    return _to_response(document)
 
 
-def get_session(session_id: UUID) -> SessionResponse:
-    """Devuelve la sesión indicada o lanza ``session_not_found``."""
-    session = _sessions.get(session_id)
-    if session is None:
+def _resolve_db_and_session_id(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[Session, UUID, bool]:
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+    if session_id is None:
+        if owns:
+            db.close()
         raise AppError(
             code="session_not_found",
             message="La sesión solicitada no existe.",
             status_code=404,
         )
-    return session
+    return db, _resolve_uuid(session_id), owns
 
 
-def get_raw_content(session_id: UUID) -> bytes | str:
+def get_session(*args: Any, **kwargs: Any) -> SessionResponse:
+    """Devuelve la sesión indicada o lanza ``session_not_found``."""
+    db, session_id, owns = _resolve_db_and_session_id(args, kwargs)
+
+    try:
+        document = db.get(Document, session_id)
+        if document is None:
+            raise AppError(
+                code="session_not_found",
+                message="La sesión solicitada no existe.",
+                status_code=404,
+            )
+        return _to_response(document)
+    finally:
+        if owns:
+            db.close()
+
+
+def get_raw_content(*args: Any, **kwargs: Any) -> bytes | str:
     """Devuelve el contenido original (bytes del PDF o texto pegado)."""
-    get_session(session_id)
-    return _raw_contents[session_id]
+    db, session_id, owns = _resolve_db_and_session_id(args, kwargs)
+
+    try:
+        document = db.get(Document, session_id)
+        if document is None:
+            raise AppError(
+                code="session_not_found",
+                message="La sesión solicitada no existe.",
+                status_code=404,
+            )
+
+        if document.source_type == SourceType.PDF.value:
+            return storage.read_pdf(db, session_id)
+
+        stored = db.get(DocumentFile, session_id)
+        if stored is None or stored.content_text is None:
+            raise AppError(
+                code="session_not_found",
+                message="La sesión solicitada no existe.",
+                status_code=404,
+            )
+        return stored.content_text
+    finally:
+        if owns:
+            db.close()
 
 
 def get_extracted(session_id: UUID) -> ExtractedContent | None:
     """Devuelve el contenido extraído o ``None`` si todavía no se extrajo."""
-    return _extracted_contents.get(session_id)
+    return _extracted_contents.get(_resolve_uuid(session_id))
 
 
-def save_extracted(content: ExtractedContent) -> None:
+def save_extracted(*args: Any, **kwargs: Any) -> None:
     """Guarda el contenido extraído y marca la sesión como ``extracted``."""
-    session = get_session(content.session_id)
-    _sessions[content.session_id] = session.model_copy(
-        update={"status": SessionStatus.EXTRACTED}
-    )
+    content = kwargs.get("content")
+    db = kwargs.get("db")
+    for item in args:
+        if isinstance(item, ExtractedContent) and content is None:
+            content = item
+        elif isinstance(item, Session) and db is None:
+            db = item
+    if content is None:
+        raise TypeError("save_extracted requiere el contenido extraído.")
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        document = db.get(Document, content.session_id)
+        if document is None:
+            raise AppError(
+                code="session_not_found",
+                message="La sesión solicitada no existe.",
+                status_code=404,
+            )
+        document.status = SessionStatus.EXTRACTED.value
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns:
+            db.close()
+
     _extracted_contents[content.session_id] = content
 
 
 def get_diagnosis(session_id: UUID) -> Diagnosis | None:
     """Devuelve el diagnóstico guardado o ``None`` si todavía no se analizó."""
-    return _diagnoses.get(session_id)
+    return _diagnoses.get(_resolve_uuid(session_id))
 
 
-def save_diagnosis(diagnosis: Diagnosis) -> None:
+def save_diagnosis(*args: Any, **kwargs: Any) -> None:
     """Guarda el diagnóstico de una sesión en memoria."""
-    get_session(diagnosis.session_id)
+    diagnosis = kwargs.get("diagnosis")
+    db = kwargs.get("db")
+    for item in args:
+        if isinstance(item, Diagnosis) and diagnosis is None:
+            diagnosis = item
+        elif isinstance(item, Session) and db is None:
+            db = item
+    if diagnosis is None:
+        raise TypeError("save_diagnosis requiere el diagnóstico.")
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        document = db.get(Document, diagnosis.session_id)
+        if document is None:
+            raise AppError(
+                code="session_not_found",
+                message="La sesión solicitada no existe.",
+                status_code=404,
+            )
+    finally:
+        if owns:
+            db.close()
+
     _diagnoses[diagnosis.session_id] = diagnosis
 
 
-def mark_analyzed(session_id: UUID) -> SessionResponse:
+def mark_analyzed(*args: Any, **kwargs: Any) -> SessionResponse:
     """Marca la sesión como ``analyzed`` sin retroceder una ya completada."""
-    session = get_session(session_id)
-    if session.status is SessionStatus.COMPLETED:
-        return session
+    session_id = kwargs.get("session_id")
+    db = kwargs.get("db")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
 
-    updated = session.model_copy(update={"status": SessionStatus.ANALYZED})
-    _sessions[session_id] = updated
-    return updated
+    if session_id is None:
+        raise AppError(
+            code="session_not_found",
+            message="La sesión solicitada no existe.",
+            status_code=404,
+        )
+
+    sid = _resolve_uuid(session_id)
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        session = get_session(db, sid)
+        if session.status is SessionStatus.COMPLETED:
+            return session
+
+        document = db.get(Document, sid)
+        if document is not None and document.status != SessionStatus.COMPLETED.value:
+            document.status = SessionStatus.ANALYZED.value
+        db.commit()
+        return get_session(db, sid)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns:
+            db.close()
