@@ -108,6 +108,46 @@ alembic revision -m "descripcion"
 alembic upgrade head
 ```
 
+### Modelos y tablas
+
+`alembic upgrade head` crea las tablas de documentos y análisis:
+
+| Tabla                | Qué guarda                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `folders`            | Carpetas por dueño, con `parent_id` opcional para anidarlas.                           |
+| `documents`          | Material cargado: dueño, carpeta opcional, `source_type`, nombre, tamaño y estado.     |
+| `document_files`     | Contenido original 1:1: `content` (BYTEA) para PDF o `content_text` para texto pegado. |
+| `extracted_contents` | Contenido estructurado 1:1 en un `payload` JSONB.                                      |
+| `diagnoses`          | Diagnóstico 1:1 en un `payload` JSONB, con `score`, `level` y `ai_status`.             |
+
+Todas las tablas llevan `owner_id` desde el inicio. Los estados y tipos
+(`source_type`, `status`, `level`, `ai_status`) se guardan como texto con
+restricciones `CHECK`; no se crean tipos `ENUM` nativos de PostgreSQL.
+
+El nombre de una carpeta no se repite dentro del mismo nivel y dueño. La
+comparación es case-insensitive e incluye las raíces (`parent_id NULL`), que
+usan un índice único parcial distinto del de las carpetas anidadas.
+
+Esta issue agrega el esquema, pero la API todavía sigue usando el
+almacenamiento en memoria: la integración de sesiones y documentos con la base
+queda para una issue posterior.
+
+### Usuario demo
+
+El seed es manual e idempotente: si el email ya existe, no duplica el usuario.
+
+```bash
+.venv/bin/python scripts/seed_user.py \
+  --email demo@ejemplo.com \
+  --password "clave-demo" \
+  --first-name Demo \
+  --last-name Usuario
+```
+
+También acepta `SEED_USER_EMAIL`, `SEED_USER_PASSWORD`,
+`SEED_USER_FIRST_NAME`, `SEED_USER_LAST_NAME` y `SEED_USER_PHONE` como
+variables de entorno. No guardes credenciales reales en el repositorio.
+
 ## Deploy en Render + Neon
 
 Producción usa el backend en Render y PostgreSQL de Neon. El desarrollo local
@@ -170,10 +210,9 @@ request puede tardar 30–60 segundos. Abrí `/health` para despertarlo y esper�
 la respuesta antes de usar la app. Neon también suspende el compute: la
 primera consulta puede tardar unos segundos.
 
-> **Persistencia pendiente:** esta issue conecta Neon y migra `users`, pero las
-> sesiones, el PDF original, el contenido extraído y el diagnóstico siguen en
-> memoria. Se pierden al reiniciar el servicio. La persistencia de esas
-> entidades queda para una issue aparte.
+> **Persistencia pendiente:** BE-17 creó las tablas para documentos, contenido
+> extraído y diagnósticos, pero la API todavía no las usa: las sesiones siguen
+> en memoria. La integración con la base queda para una issue aparte.
 
 ## Ejecutar el proyecto
 
@@ -654,6 +693,11 @@ Los tests de base de datos usan `TEST_DATABASE_URL` y fallan de forma explícita
 si apunta a la misma base que `DATABASE_URL` o si el nombre de la base no
 termina en `_test`.
 
+La suite aplica `alembic upgrade head` sobre `TEST_DATABASE_URL` una vez por
+sesión, así que no hace falta migrar la base de tests a mano. Cada test corre
+dentro de una transacción que se revierte al terminar: los `commit()` del test
+no dejan datos entre pruebas.
+
 ## Formato de errores
 
 Todas las respuestas de error de la API usan el formato:
@@ -682,6 +726,7 @@ backend/
 │   │   └── v1/
 │   │       └── endpoints/
 │   │           ├── adaptations.py # Endpoint de adaptación de barreras
+│   │           ├── auth.py        # Registro, login y datos del usuario
 │   │           ├── content.py     # Endpoints de contenido
 │   │           ├── diagnosis.py   # Endpoints del diagnóstico
 │   │           ├── export.py      # Exportación del PDF adaptado
@@ -690,6 +735,13 @@ backend/
 │   │   ├── config.py              # Configuración y variables de entorno
 │   │   ├── database.py            # Engine, sesión y Base de SQLAlchemy
 │   │   └── exceptions.py          # Errores globales con formato {code, message}
+│   ├── models/
+│   │   ├── diagnosis.py           # DiagnosisRecord (payload JSONB, score, level, ai_status)
+│   │   ├── document.py            # Document (dueño, carpeta, PDF/texto, estado)
+│   │   ├── document_file.py       # DocumentFile (BYTEA o texto pegado)
+│   │   ├── extracted_content.py   # ExtractedContentRecord (payload JSONB)
+│   │   ├── folder.py              # Folder (carpetas anidadas y unicidad por nivel)
+│   │   └── user.py                # User
 │   ├── processors/
 │   │   ├── pdf_processor.py       # Extracción de bloques desde PDFs
 │   │   └── text_processor.py      # Extracción de bloques desde texto plano
@@ -719,9 +771,10 @@ backend/
 ├── scripts/
 │   ├── inspect_pdf.py             # Bloques detectados en un PDF
 │   ├── preview_rules.py           # Observaciones y puntaje por reglas
+│   ├── seed_user.py               # Seed manual e idempotente del usuario demo
 │   └── try_ai_analysis.py         # Reglas + análisis con IA sobre un PDF
 ├── tests/
-│   ├── conftest.py
+│   ├── conftest.py                # Fixtures de DB, migraciones y cliente
 │   ├── test_adaptation.py
 │   ├── test_adaptations_api.py
 │   ├── test_ai_analysis.py
@@ -729,19 +782,25 @@ backend/
 │   ├── test_content.py
 │   ├── test_database.py
 │   ├── test_diagnosis.py
+│   ├── test_documents.py          # Documentos PDF/texto, JSONB y cascadas
 │   ├── test_export.py
 │   ├── test_export_api.py
+│   ├── test_folders.py            # Unicidad de carpetas por nivel y dueño
 │   ├── test_gemini.py
+│   ├── test_migrations.py         # Tablas, enums como texto y versión
 │   ├── test_openrouter.py
 │   ├── test_pdf_processor.py
 │   ├── test_rules.py
 │   ├── test_scoring.py
+│   ├── test_seed_user.py          # Seed demo idempotente
 │   ├── test_sessions.py
 │   └── test_text_processor.py
 ├── alembic/
 │   ├── env.py                     # Toma DATABASE_URL y Base.metadata
 │   └── versions/
-│       └── *_baseline.py          # Revisión baseline vacía
+│       ├── *_baseline.py          # Revisión baseline vacía
+│       ├── *_create_users_table.py
+│       └── *_create_folders_documents_contents_and_diagnoses.py
 ├── docker/
 │   └── initdb/
 │       └── 01-create-test-db.sh   # Crea la base _test al inicializar el volumen

@@ -3,9 +3,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+import app.models  # noqa: F401  # registra todos los modelos para autogenerate
+
 from app.core.config import settings
 from app.core.database import Base
-from app.models import user  # noqa: F401  # registra los modelos para autogenerate
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

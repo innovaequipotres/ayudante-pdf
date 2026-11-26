@@ -2,28 +2,10 @@ import uuid
 
 import pytest
 from pwdlib import PasswordHash
-from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.models.user import User
 from app.schemas.auth import UserPublic
-
-
-@pytest.fixture
-def db_session():
-    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    session = Session()
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.query(User).delete()
-        session.commit()
-        session.close()
-        engine.dispose()
 
 
 def _hashed_password(password: str = "secreto123") -> str:
