@@ -17,5 +17,9 @@ sqlalchemy==2.1.4
 psycopg[binary]==3.3.9
 alembic==1.20.1
 
+# Autenticación (hash de contraseñas)
+pwdlib[argon2]==0.4.2
+email-validator==2.4.0
+
 # Cliente HTTP general
 requests==2.34.2
