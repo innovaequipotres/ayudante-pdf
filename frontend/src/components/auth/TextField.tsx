@@ -1,3 +1,6 @@
+
+import { Mail } from "lucide-react";
+
 interface TextFieldProps {
   autoComplete: string;
   error?: string;
@@ -24,12 +27,13 @@ export default function TextField({
   value,
 }: TextFieldProps) {
   const errorId = `${id}-error`;
+  const isEmail = type === "email";
 
   return (
     <div>
       <label
         htmlFor={id}
-        className="mb-1.5 block text-sm font-semibold text-slate-800"
+        className="mb-1.5 block text-sm font-semibold text-[#14203C]"
       >
         {label}
         {required && (
@@ -38,20 +42,37 @@ export default function TextField({
           </span>
         )}
       </label>
-      <input
-        id={id}
-        name={id}
-        type={type}
-        autoComplete={autoComplete}
-        value={value}
-        required={required}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? errorId : undefined}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        className="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:border-blue-600 focus-visible:outline-blue-600"
-      />
+
+      <div className="relative">
+        {isEmail && (
+          <Mail
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+          />
+        )}
+
+        <input
+          id={id}
+          name={id}
+          type={type}
+          autoComplete={autoComplete}
+          value={value}
+          required={required}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) =>
+            onChange(event.currentTarget.value)
+          }
+          className={`min-h-11 w-full rounded-lg border bg-white py-2.5 pr-3.5 text-sm text-[#14203C] placeholder:text-slate-500 transition-colors focus-visible:border-[#6360ED] focus-visible:outline-[#6360ED] ${
+            isEmail ? "pl-10" : "pl-3.5"
+          } ${
+            error ? "border-rose-700" : "border-[#C5D2E7]"
+          }`}
+        />
+      </div>
+
       {error && (
         <p
           id={errorId}
