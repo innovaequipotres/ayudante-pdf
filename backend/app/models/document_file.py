@@ -34,5 +34,9 @@ class DocumentFile(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Los bytes se cargan solo al leerlos con ``read_pdf``: un listado de
+    # documentos no debe traer esta columna.
+    content: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True, deferred=True
+    )
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
