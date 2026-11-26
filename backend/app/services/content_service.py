@@ -7,8 +7,10 @@ Todo el acceso al almacenamiento pasa por ``session_service``.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
 from app.processors.pdf_processor import extract_from_pdf
@@ -135,47 +137,69 @@ def build_content(
     )
 
 
-def extract(session_id: UUID) -> ExtractedContent:
-    """Extrae el contenido de una sesión o devuelve el ya guardado.
+def _resolve_db_and_session_id(args, kwargs):
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    if db is None:
+        from app.core.database import SessionLocal
 
-    Raises:
-        AppError: Si la sesión no existe (404), si el PDF no se puede leer
-            (422) o si el material no tiene texto extraíble (422).
-    """
-    session = session_service.get_session(session_id)
-
-    stored = session_service.get_extracted(session_id)
-    if stored is not None:
-        return stored
-
-    raw_content = session_service.get_raw_content(session_id)
-
-    if session.source_type is SourceType.PDF:
-        blocks, page_count, pages = extract_from_pdf(cast(bytes, raw_content))
+        db = SessionLocal()
+        owns = True
     else:
-        blocks = extract_from_text(cast(str, raw_content))
-        page_count = None
-        pages = []
+        owns = False
+    if session_id is None:
+        if owns:
+            db.close()
+        raise AppError(code="session_not_found", message="La sesión solicitada no existe.", status_code=404)
+    return db, session_id if isinstance(session_id, UUID) else UUID(str(session_id)), owns
 
-    content = build_content(session, blocks, page_count, pages)
-    session_service.save_extracted(content)
-    return content
+
+def extract(*args: Any, **kwargs: Any) -> ExtractedContent:
+    """Extrae el contenido de una sesión o devuelve el ya guardado."""
+    db, sid, owns = _resolve_db_and_session_id(args, kwargs)
+    try:
+        session = session_service.get_session(db, sid)
+
+        stored = session_service.get_extracted(sid)
+        if stored is not None:
+            return stored
+
+        raw_content = session_service.get_raw_content(db, sid)
+
+        if session.source_type is SourceType.PDF:
+            blocks, page_count, pages = extract_from_pdf(cast(bytes, raw_content))
+        else:
+            blocks = extract_from_text(cast(str, raw_content))
+            page_count = None
+            pages = []
+
+        content = build_content(session, blocks, page_count, pages)
+        session_service.save_extracted(content, db=db)
+        return content
+    finally:
+        if owns:
+            db.close()
 
 
-def get_content(session_id: UUID) -> ExtractedContent:
-    """Devuelve el contenido extraído de una sesión.
+def get_content(*args: Any, **kwargs: Any) -> ExtractedContent:
+    """Devuelve el contenido extraído de una sesión."""
+    db, sid, owns = _resolve_db_and_session_id(args, kwargs)
+    try:
+        session_service.get_session(db, sid)
 
-    Raises:
-        AppError: Si la sesión no existe (404) o si el contenido todavía no fue
-            extraído (409).
-    """
-    session_service.get_session(session_id)
-
-    content = session_service.get_extracted(session_id)
-    if content is None:
-        raise AppError(
-            code="content_not_extracted",
-            message="El contenido todavía no fue extraído.",
-            status_code=409,
-        )
-    return content
+        content = session_service.get_extracted(sid)
+        if content is None:
+            raise AppError(
+                code="content_not_extracted",
+                message="El contenido todavía no fue extraído.",
+                status_code=409,
+            )
+        return content
+    finally:
+        if owns:
+            db.close()

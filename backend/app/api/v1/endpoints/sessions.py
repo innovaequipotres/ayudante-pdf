@@ -1,8 +1,10 @@
 from uuid import UUID
 
-from fastapi import APIRouter, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.session import SessionResponse, TextInput
 from app.services import session_service
@@ -49,14 +51,15 @@ _SESSION_RESPONSES = {
     summary="Crear una sesión a partir de un archivo PDF",
     responses=_FILE_RESPONSES,
 )
-async def create_session_from_file(
+def create_session_from_file(
     file: UploadFile = File(
         ...,
         description=f"Archivo PDF de hasta {settings.max_upload_mb} MB.",
     ),
+    db: Session = Depends(get_db),
 ) -> SessionResponse:
-    content = await file.read()
-    return session_service.create_from_file(file.filename or "", content)
+    content = file.file.read()
+    return session_service.create_from_file(db, file.filename or "", content)
 
 
 @router.post(
@@ -66,8 +69,10 @@ async def create_session_from_file(
     summary="Crear una sesión a partir de un texto pegado",
     responses=_TEXT_RESPONSES,
 )
-def create_session_from_text(payload: TextInput) -> SessionResponse:
-    return session_service.create_from_text(payload)
+def create_session_from_text(
+    payload: TextInput, db: Session = Depends(get_db)
+) -> SessionResponse:
+    return session_service.create_from_text(db, payload)
 
 
 @router.get(
@@ -76,5 +81,5 @@ def create_session_from_text(payload: TextInput) -> SessionResponse:
     summary="Obtener una sesión por su identificador",
     responses=_SESSION_RESPONSES,
 )
-def get_session(session_id: UUID) -> SessionResponse:
-    return session_service.get_session(session_id)
+def get_session(session_id: UUID, db: Session = Depends(get_db)) -> SessionResponse:
+    return session_service.get_session(db, session_id)
