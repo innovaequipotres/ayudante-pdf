@@ -1,0 +1,7 @@
+# El entrypoint de Postgres ejecuta estos scripts dentro del contenedor:
+# deben tener LF aunque el repo se clone en Windows.
+docker/initdb/*.sh text eol=lf
+
+# El .env se copia de este archivo; LF evita problemas al leerlo con
+# pydantic-settings y Docker Compose.
+.env.example text eol=lf
