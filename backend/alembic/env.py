@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, pool
 
 from app.core.config import settings
 from app.core.database import Base
@@ -22,13 +22,19 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    """Devuelve la URL de la app o falla con un mensaje accionable."""
-    if not settings.database_url:
+    """Devuelve la URL para migrar o falla con un mensaje accionable.
+
+    En producción usa la conexión directa de Neon (sin ``-pooler``), que es la
+    recomendada para cambios de esquema. En local cae a ``DATABASE_URL``, que
+    apunta al Postgres de Docker.
+    """
+    url = settings.database_url_unpooled or settings.database_url
+    if not url:
         raise RuntimeError(
             "DATABASE_URL no está configurada. "
             "Copiá backend/.env.example a backend/.env."
         )
-    return settings.database_url
+    return url
 
 
 def run_migrations_offline() -> None:
@@ -46,7 +52,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = create_engine(_database_url(), pool_pre_ping=True)
+    connectable = create_engine(
+        _database_url(),
+        pool_pre_ping=True,
+        poolclass=pool.NullPool,
+    )
 
     try:
         with connectable.connect() as connection:
