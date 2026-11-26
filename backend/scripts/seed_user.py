@@ -22,10 +22,8 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from pwdlib import PasswordHash
-
-from app.core.config import settings
 from app.core.database import SessionLocal, engine
+from app.core.security import hash_password
 from app.models.user import User
 
 
@@ -69,8 +67,7 @@ def main() -> int:
 
     normalized_email = email.strip().lower()
 
-    password_hasher = PasswordHash.recommended()
-    password_hash = password_hasher.hash(password)
+    password_hash = hash_password(password)
 
     session = SessionLocal()
     try:
