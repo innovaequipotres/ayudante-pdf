@@ -1,7 +1,7 @@
 # Propuesta de Data e IA para Lumi
 
 **Estado:** propuesta para discutir con el equipo · **Fecha:** 25/11/2026 ·
-**Autor:** Jorge, área de Data
+**Autor:** Edison Fernandez, área de Data
 
 ## 1. Punto de partida
 
