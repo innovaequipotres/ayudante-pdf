@@ -1,8 +1,16 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.services import session_service
+# Debe definirse antes de importar app.main: Settings se instancia al importar.
+# Es un secreto exclusivo de la suite, nunca el de producción.
+os.environ.setdefault(
+    "JWT_SECRET", "test-jwt-secret-no-usar-en-produccion-0123456789abcdef"
+)
+
+from app.main import app  # noqa: E402
+from app.services import session_service  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
