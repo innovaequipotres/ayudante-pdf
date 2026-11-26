@@ -35,7 +35,13 @@ class Settings(BaseSettings):
     )
     # Sin valor por defecto para no hardcodear credenciales. Si falta, la app
     # arranca igual y la base falla con un error claro al usarse.
+    # En local apunta al Postgres de Docker; en Render se configura con la URL
+    # pooled de Neon desde el dashboard. Nunca se commitea una URL real.
     database_url: str = ""
+    # URL directa (sin -pooler) que usa Alembic para las migraciones. Neon
+    # recomienda una conexión directa para los cambios de esquema. En local se
+    # deja vacía y Alembic usa DATABASE_URL (Docker).
+    database_url_unpooled: str = ""
     test_database_url: str = ""
 
     # Secreto para firmar los JWT. Sin valor por defecto inseguro: si falta, la
@@ -44,7 +50,11 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_expire_minutes: int = 1440
 
-    @field_validator("database_url", "test_database_url")
+    @field_validator(
+        "database_url",
+        "database_url_unpooled",
+        "test_database_url",
+    )
     @classmethod
     def validate_postgres_url(cls, value: str) -> str:
         """Exige el driver psycopg 3; ``postgresql://`` usaría psycopg2."""
