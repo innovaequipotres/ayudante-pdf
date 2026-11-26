@@ -34,20 +34,22 @@ los mocks sin adivinar nombres ni formatos.
 | ----------------- | --------------------------------------------------------------- |
 | Base URL local    | `http://127.0.0.1:8000`                                         |
 | Prefijo de la API | `/api/v1`                                                       |
-| Autenticación     | Ninguna todavía                                                 |
+| Autenticación     | JWT Bearer en `/auth/me`; el resto de las rutas sigue pública   |
 | Formato           | JSON UTF-8 (`application/json`); la exportación devuelve PDF    |
 | OpenAPI           | `http://127.0.0.1:8000/openapi.json`                            |
 | Documentación     | `http://127.0.0.1:8000/docs`                                    |
-| Persistencia      | **En memoria**: se pierde al reiniciar el servidor              |
+| Persistencia      | Usuarios en PostgreSQL; sesiones en memoria                     |
 | Proveedor de IA   | Gemini por defecto; OpenRouter opcional (no afecta el contrato) |
 
-`/openapi.json` ya incluye las 9 rutas de negocio, los modelos y los errores
-declarados. **No incluye ejemplos de respuesta**: los ejemplos de este
-documento se capturaron ejecutando la API real.
+`/openapi.json` ya incluye las 9 rutas de negocio, las 3 rutas de auth, los
+modelos y los errores declarados. **No incluye ejemplos de respuesta**: los
+ejemplos de este documento se capturaron ejecutando la API real.
 
 ### Lo que todavía no forma parte del contrato
 
-- Autenticación, usuarios y permisos.
+- Permisos por rol y protección del resto de las rutas: solo `GET /auth/me`
+  valida el token. Las rutas de sesiones, adaptación y exportación siguen
+  siendo públicas.
 - Persistencia en base de datos e historial entre reinicios, también para las
   adaptaciones y la exportación: `POST /api/v1/adaptations` y
   `POST /api/v1/sessions/{session_id}/export` son stateless.
@@ -163,6 +165,9 @@ Equivalencias:
 
 | Método | Ruta                                      | Éxito | Descripción                                              |
 | ------ | ----------------------------------------- | ----- | -------------------------------------------------------- |
+| `POST` | `/api/v1/auth/register`                   | `201` | Registra un usuario y devuelve un access token.          |
+| `POST` | `/api/v1/auth/login`                      | `200` | Verifica credenciales y devuelve un access token.        |
+| `GET`  | `/api/v1/auth/me`                         | `200` | Devuelve el usuario dueño del token (`Bearer`).          |
 | `POST` | `/api/v1/sessions/file`                   | `201` | Crea una sesión desde un PDF (`multipart/form-data`).    |
 | `POST` | `/api/v1/sessions/text`                   | `201` | Crea una sesión desde texto pegado (`application/json`). |
 | `GET`  | `/api/v1/sessions/{session_id}`           | `200` | Devuelve una sesión.                                     |
@@ -320,6 +325,57 @@ Reglas de aplicación:
 > texto del PDF, así que copiar/pegar o un lector de pantalla pueden ver ambos
 > textos. La redacción real requiere PyMuPDF o cirugía de content streams y
 > queda para una issue aparte.
+
+### 5.11 Autenticación (`/api/v1/auth`)
+
+Tres rutas públicas de alta, login y datos del usuario. **Solo `GET /auth/me`
+valida el token**; las rutas de sesiones, adaptación y exportación siguen
+abiertas (la protección del resto de la API es otra issue).
+
+Variables de entorno:
+
+| Variable             | Default       | Descripción                                                                                                                                                |
+| -------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JWT_SECRET`         | (sin default) | Secreto HS256 para firmar y validar tokens. Sin él, register y login fallan. Se genera con `python -c "import secrets; print(secrets.token_urlsafe(64))"`. |
+| `JWT_EXPIRE_MINUTES` | `1440`        | Vigencia del access token en minutos (`86400` segundos por defecto).                                                                                       |
+
+#### `POST /api/v1/auth/register`
+
+- **Request:** [`RegisterRequest`](#registerrequest), `application/json`.
+- **Response `201`:** [`AuthResponse`](#authresponse).
+- **Normalización:** el email se recorta (`strip`) y se guarda en minúsculas;
+  la comparación de duplicados no distingue mayúsculas.
+- **Errores:** `409 email_already_registered`, `422 VALIDATION_ERROR`.
+
+#### `POST /api/v1/auth/login`
+
+- **Request:** [`LoginRequest`](#loginrequest), `application/json`.
+- **Response `200`:** [`AuthResponse`](#authresponse).
+- **Errores:** `401 invalid_credentials`, `422 VALIDATION_ERROR`.
+- Un email inexistente y una contraseña incorrecta devuelven **el mismo cuerpo**
+  con el mismo `code`: la respuesta no revela si la cuenta existe.
+
+#### `GET /api/v1/auth/me`
+
+- **Header obligatorio:** `Authorization: Bearer <token>`.
+- **Response `200`:** [`UserResponse`](#userresponse).
+- **Errores:** `401 invalid_token` si falta el header, el esquema no es
+  `Bearer`, la firma es inválida, el token venció, el claim `sub` falta o no es
+  un UUID, o el usuario ya no existe.
+
+```bash
+BASE=http://127.0.0.1:8000/api/v1
+
+TOKEN=$(curl -s -X POST "$BASE/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"lucia.gomez@example.com","password":"ClaveSegura123"}' \
+  | jq -r .access_token)
+
+curl -s "$BASE/auth/me" -H "Authorization: Bearer $TOKEN" | jq
+```
+
+No hay refresh tokens, logout, recuperación de contraseña, permisos por rol ni
+rate limiting en esta versión.
 
 ## 6. Modelos
 
@@ -497,6 +553,44 @@ Tamaño visible de una página del PDF.
 | ---------- | -------- | --------- | ------------------------------------------------------- |
 | `block_id` | `string` | Sí        | Debe existir en el contenido extraído.                  |
 | `text`     | `string` | Sí        | No vacío después de `strip()`; máximo 8.000 caracteres. |
+
+### `RegisterRequest`
+
+| Campo        | Tipo             | Nulo | Restricciones                                                          |
+| ------------ | ---------------- | ---- | ---------------------------------------------------------------------- |
+| `first_name` | `string`         | No   | Se recorta con `strip()`; al menos 1 carácter.                         |
+| `last_name`  | `string`         | No   | Se recorta con `strip()`; al menos 1 carácter.                         |
+| `email`      | `string` (email) | No   | Se recorta y se guarda en minúsculas; único sin distinguir mayúsculas. |
+| `password`   | `string`         | No   | Entre 8 y 128 caracteres. No se devuelve nunca.                        |
+| `phone`      | `string`         | Sí   | Se recorta; un string vacío se guarda como `null`.                     |
+
+### `LoginRequest`
+
+| Campo      | Tipo             | Nulo | Restricciones                      |
+| ---------- | ---------------- | ---- | ---------------------------------- |
+| `email`    | `string` (email) | No   | Se recorta y se pasa a minúsculas. |
+| `password` | `string`         | No   | Se compara contra el hash Argon2.  |
+
+### `UserResponse`
+
+| Campo        | Tipo                    | Nulo | Descripción                                        |
+| ------------ | ----------------------- | ---- | -------------------------------------------------- |
+| `id`         | `string` (UUID)         | No   | Identificador del usuario.                         |
+| `email`      | `string` (email)        | No   | Email normalizado a minúsculas.                    |
+| `full_name`  | `string`                | No   | `first_name` + `" "` + `last_name`, sin sobrantes. |
+| `role`       | `string`                | No   | Rol del usuario; hoy siempre `"Docente"`.          |
+| `created_at` | `string` (ISO 8601 UTC) | No   | Fecha de alta.                                     |
+
+### `AuthResponse`
+
+| Campo          | Tipo           | Nulo | Descripción                     |
+| -------------- | -------------- | ---- | ------------------------------- |
+| `access_token` | `string`       | No   | JWT firmado con HS256.          |
+| `token_type`   | `"bearer"`     | No   | Siempre `"bearer"`.             |
+| `expires_in`   | `integer`      | No   | Vigencia del token en segundos. |
+| `user`         | `UserResponse` | No   | Usuario autenticado.            |
+
+Ningún schema de respuesta incluye `password` ni `password_hash`.
 
 ### `ErrorResponse`
 
@@ -1038,6 +1132,113 @@ content-type: application/pdf
 content-disposition: attachment; filename="documento-adaptado.pdf"; filename*=UTF-8''documento_adaptado.pdf
 ```
 
+### 7.13 Registro, login y usuario autenticado
+
+Request de registro (`POST /api/v1/auth/register`):
+
+```json
+{
+  "first_name": "Lucía",
+  "last_name": "Gómez",
+  "email": "Lucia.Gomez@Example.com",
+  "password": "ClaveSegura123",
+  "phone": "+54 11 5555-1234"
+}
+```
+
+Response `201` (token abreviado con `...`):
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 86400,
+  "user": {
+    "id": "31816de9-9a65-4933-9ddf-7c9721ac7034",
+    "email": "lucia.gomez@example.com",
+    "full_name": "Lucía Gómez",
+    "role": "Docente",
+    "created_at": "2026-11-26T02:02:31.700047Z"
+  }
+}
+```
+
+`POST /api/v1/auth/login` con las mismas credenciales responde `200` con la
+misma estructura (`access_token`, `token_type`, `expires_in`, `user`):
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 86400,
+  "user": {
+    "id": "31816de9-9a65-4933-9ddf-7c9721ac7034",
+    "email": "lucia.gomez@example.com",
+    "full_name": "Lucía Gómez",
+    "role": "Docente",
+    "created_at": "2026-11-26T02:02:31.700047Z"
+  }
+}
+```
+
+Request de `GET /api/v1/auth/me`:
+
+```http
+GET /api/v1/auth/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Response `200`:
+
+```json
+{
+  "id": "31816de9-9a65-4933-9ddf-7c9721ac7034",
+  "email": "lucia.gomez@example.com",
+  "full_name": "Lucía Gómez",
+  "role": "Docente",
+  "created_at": "2026-11-26T02:02:31.700047Z"
+}
+```
+
+`GET /auth/me` con el token alterado (o vencido) devuelve `401`:
+
+```json
+{
+  "code": "invalid_token",
+  "message": "Token de acceso inválido o expirado."
+}
+```
+
+Login con contraseña incorrecta y login con un email inexistente devuelven el
+mismo cuerpo, sin revelar si la cuenta existe:
+
+```json
+{
+  "code": "invalid_credentials",
+  "message": "Email o contraseña incorrectos."
+}
+```
+
+Registro con un email ya existente (con cualquier capitalización) devuelve
+`409`:
+
+```json
+{
+  "code": "email_already_registered",
+  "message": "Ya existe un usuario registrado con ese email."
+}
+```
+
+Registro con datos inválidos devuelve `422` con el formato de validación
+habitual:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "email: value is not a valid email address: An email address must have an @-sign.; password: String should have at least 8 characters"
+}
+```
+
 ## 8. Catálogo de errores
 
 Todas las respuestas de error tienen la forma
@@ -1047,8 +1248,11 @@ Todas las respuestas de error tienen la forma
 | ----- | --------------------------- | ----------------------------------------------------------------- |
 | `400` | `empty_content`             | Archivo vacío, o texto vacío/solo espacios.                       |
 | `400` | `invalid_pdf`               | El archivo no empieza con la firma `%PDF`.                        |
+| `401` | `invalid_credentials`       | Email inexistente o contraseña incorrecta en `POST /auth/login`.  |
+| `401` | `invalid_token`             | Token ausente, inválido o vencido en `GET /auth/me`.              |
 | `404` | `session_not_found`         | La sesión indicada no existe.                                     |
 | `409` | `content_not_extracted`     | Se pidió el contenido antes de `POST /extract`.                   |
+| `409` | `email_already_registered`  | El email de `POST /auth/register` ya está registrado.             |
 | `409` | `session_not_analyzed`      | Se pidió el diagnóstico antes de `POST /analyze`.                 |
 | `409` | `export_unavailable`        | Se intentó exportar una sesión creada desde texto pegado.         |
 | `413` | `file_too_large`            | El archivo supera `MAX_UPLOAD_MB` (25 MB por defecto).            |
@@ -1205,3 +1409,9 @@ Debe listar las 9 rutas de negocio más `/` y `/health`.
   PDF), los modelos `ExportRequest` y `ExportEdit`, y el campo aditivo
   `ContentBlock.font_size` (`number | null`). No cambia ninguna ruta ni campo
   existente.
+- **BE-27:** se agregan `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
+  y `GET /api/v1/auth/me`, junto con los modelos `RegisterRequest`,
+  `LoginRequest`, `UserResponse` y `AuthResponse`, y los errores
+  `email_already_registered`, `invalid_credentials` e `invalid_token`. Son
+  rutas nuevas y aditivas: ninguna ruta existente cambia ni queda protegida en
+  esta issue.
