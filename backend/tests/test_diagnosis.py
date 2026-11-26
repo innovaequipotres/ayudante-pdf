@@ -119,7 +119,6 @@ def test_analyze_extracts_content_when_missing(client: TestClient) -> None:
     response = client.post(_analyze_url(session["session_id"], use_ai=False))
 
     assert response.status_code == 200
-    assert session_service.get_extracted(UUID(session["session_id"])) is not None
     content = client.get(f"{API_PREFIX}/{session['session_id']}/content")
     assert content.status_code == 200
     assert content.json()["blocks"]

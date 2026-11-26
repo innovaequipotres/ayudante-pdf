@@ -99,7 +99,6 @@ def clean_database_tables(migrated_test_database: None) -> Iterator[None]:
             )
 
     # Limpieza residual del estado en memoria aún no migrado.
-    session_service._extracted_contents.clear()
     session_service._diagnoses.clear()
 
     yield
@@ -109,7 +108,6 @@ def clean_database_tables(migrated_test_database: None) -> Iterator[None]:
             connection.execute(
                 text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE")
             )
-    session_service._extracted_contents.clear()
     session_service._diagnoses.clear()
     engine.dispose()
 
