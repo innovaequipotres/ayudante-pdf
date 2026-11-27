@@ -18,6 +18,7 @@ from app.core.database import SessionLocal
 from app.core.exceptions import AppError
 from app.models.document import Document
 from app.models.document_file import DocumentFile
+from app.models.extracted_content import ExtractedContentRecord
 from app.models.user import User
 from app.schemas.content import ExtractedContent
 from app.schemas.diagnosis import Diagnosis
@@ -29,10 +30,8 @@ from app.schemas.session import (
 )
 from app.services import storage
 
-# Contenido extraído y diagnósticos aún viven en memoria (sus repositorios
-# se migrarán en issues posteriores). Solo se eliminan las sesiones y los
-# contenidos crudos, que ahora persisten en Postgres.
-_extracted_contents: dict[UUID, ExtractedContent] = {}
+# Los diagnósticos aún viven en memoria (su repositorio se migrará en una
+# issue posterior). El contenido extraído ya persiste en PostgreSQL.
 _diagnoses: dict[UUID, Diagnosis] = {}
 
 _SYSTEM_USER_EMAIL = "sessions@ayudante-pdf.local"
@@ -316,13 +315,50 @@ def get_raw_content(*args: Any, **kwargs: Any) -> bytes | str:
             db.close()
 
 
-def get_extracted(session_id: UUID) -> ExtractedContent | None:
+def _resolve_db_and_session_id_extracted(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[Session, UUID | None, bool]:
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    content = kwargs.get("content")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif isinstance(item, ExtractedContent) and content is None:
+            content = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    if content is not None and session_id is None:
+        session_id = content.session_id
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+    if session_id is None:
+        if owns:
+            db.close()
+        raise AppError(
+            code="session_not_found",
+            message="La sesión solicitada no existe.",
+            status_code=404,
+        )
+    return db, _resolve_uuid(session_id), owns
+
+
+def get_extracted(*args: Any, **kwargs: Any) -> ExtractedContent | None:
     """Devuelve el contenido extraído o ``None`` si todavía no se extrajo."""
-    return _extracted_contents.get(_resolve_uuid(session_id))
+    db, session_id, owns = _resolve_db_and_session_id_extracted(args, kwargs)
+    try:
+        record = db.get(ExtractedContentRecord, session_id)
+        if record is None:
+            return None
+        return ExtractedContent.model_validate(record.payload)
+    finally:
+        if owns:
+            db.close()
 
 
 def save_extracted(*args: Any, **kwargs: Any) -> None:
-    """Guarda el contenido extraído y marca la sesión como ``extracted``."""
+    """Persiste el contenido extraído y marca la sesión como extracted."""
     content = kwargs.get("content")
     db = kwargs.get("db")
     for item in args:
@@ -346,6 +382,20 @@ def save_extracted(*args: Any, **kwargs: Any) -> None:
                 status_code=404,
             )
         document.status = SessionStatus.EXTRACTED.value
+
+        record = db.get(ExtractedContentRecord, content.session_id)
+        payload = content.model_dump(mode="json")
+        if record is None:
+            record = ExtractedContentRecord(
+                document_id=content.session_id,
+                owner_id=document.owner_id,
+                payload=payload,
+            )
+            db.add(record)
+        else:
+            record.owner_id = document.owner_id
+            record.payload = payload
+
         db.commit()
     except Exception:
         db.rollback()
@@ -353,8 +403,6 @@ def save_extracted(*args: Any, **kwargs: Any) -> None:
     finally:
         if owns:
             db.close()
-
-    _extracted_contents[content.session_id] = content
 
 
 def get_diagnosis(session_id: UUID) -> Diagnosis | None:

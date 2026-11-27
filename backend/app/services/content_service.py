@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
@@ -165,7 +166,7 @@ def extract(*args: Any, **kwargs: Any) -> ExtractedContent:
     try:
         session = session_service.get_session(db, sid)
 
-        stored = session_service.get_extracted(sid)
+        stored = session_service.get_extracted(db, sid)
         if stored is not None:
             return stored
 
@@ -179,7 +180,14 @@ def extract(*args: Any, **kwargs: Any) -> ExtractedContent:
             pages = []
 
         content = build_content(session, blocks, page_count, pages)
-        session_service.save_extracted(content, db=db)
+        try:
+            session_service.save_extracted(content, db=db)
+        except IntegrityError:
+            db.rollback()
+            stored = session_service.get_extracted(db, sid)
+            if stored is not None:
+                return stored
+            raise
         return content
     finally:
         if owns:
@@ -192,7 +200,7 @@ def get_content(*args: Any, **kwargs: Any) -> ExtractedContent:
     try:
         session_service.get_session(db, sid)
 
-        content = session_service.get_extracted(sid)
+        content = session_service.get_extracted(db, sid)
         if content is None:
             raise AppError(
                 code="content_not_extracted",
