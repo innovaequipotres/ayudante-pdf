@@ -487,3 +487,25 @@ def test_openapi_documents_error_responses() -> None:
 
     assert {"200", "404", "422"} <= set(analyze["responses"])
     assert {"200", "404", "409"} <= set(diagnosis["responses"])
+
+def test_diagnosis_persists_across_db_sessions(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El diagnóstico debe sobrevivir un 'reinicio' de la sesión de DB."""
+    _fake_ai(monkeypatch, [_ai_result(observations=[_ai_observation("b1")])])
+    session = _create_text_session(client, text=_LONG_TEXT)
+
+    # Analizar y obtener el diagnóstico
+    analyzed = client.post(_analyze_url(session["session_id"])).json()
+    assert analyzed["ai_status"] == "ok"
+
+    # Simular un "reinicio" limpiando el caché en memoria
+    # (esto es lo que pasaba antes: se perdía todo)
+    session_service._diagnoses.clear()
+
+    # El diagnóstico debe seguir disponible porque está en la DB
+    stored = client.get(f"{API_PREFIX}/{session['session_id']}/diagnosis")
+    assert stored.status_code == 200
+    assert stored.json()["score"] == analyzed["score"]
+    assert stored.json()["level"] == analyzed["level"]
