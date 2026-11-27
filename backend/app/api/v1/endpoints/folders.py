@@ -21,7 +21,7 @@ _FOLDERS_RESPONSES = {
         "model": ErrorResponse,
         "description": "Nombre de carpeta duplicado (`folder_name_conflict`).",
     },
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "model": ErrorResponse,
         "description": "Error de validación (`folder_cannot_be_own_parent`, `folder_cannot_be_descendant`).",
     },
