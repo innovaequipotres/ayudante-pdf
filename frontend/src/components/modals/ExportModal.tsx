@@ -97,7 +97,7 @@ export default function ExportModal({
     }
 
     if (!onSaveToApp) {
-      setError("Guardar en Mis archivos no está disponible en esta vista.");
+      setError("Guardar en Mis documentos no está disponible en esta vista.");
       return;
     }
 
@@ -125,7 +125,7 @@ export default function ExportModal({
                 <Dialog.Title className="text-lg font-bold text-slate-900 sm:text-xl">
                   {view === "options"
                     ? "Tu material está listo"
-                    : "Guardar en Mis archivos"}
+                    : "Guardar en Mis documentos"}
                 </Dialog.Title>
                 <Dialog.Description className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
                   {view === "options"
@@ -235,7 +235,7 @@ export default function ExportModal({
                         className="size-4 shrink-0 text-slate-500"
                       />
                       <span className="min-w-0 flex-1 truncate">
-                        Mis archivos (sin carpeta)
+                        Mis documentos (sin carpeta)
                       </span>
                       <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                         Raíz
