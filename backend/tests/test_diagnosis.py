@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.main import app
 from app.models.document import Document
+from app.models.diagnosis import DiagnosisRecord
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from app.schemas.ai import AiAnalysisResult, AiStatus
@@ -492,22 +493,24 @@ def test_diagnosis_persists_across_db_sessions(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """El diagnóstico debe sobrevivir un 'reinicio' de la sesión de DB.
-
-    Como ahora se persiste en PostgreSQL, el GET /diagnosis debe funcionar
-    aunque se haya creado una nueva sesión de DB entre el POST y el GET.
-    """
+    """El diagnóstico debe sobrevivir a un reinicio: se lee de la DB."""
     _fake_ai(monkeypatch, [_ai_result(observations=[_ai_observation("b1")])])
     session = _create_text_session(client, text=_LONG_TEXT)
 
-    # Analizar y obtener el diagnóstico
     analyzed = client.post(_analyze_url(session["session_id"])).json()
     assert analyzed["ai_status"] == "ok"
 
-    # El diagnóstico debe estar disponible porque está en la DB
-    # (antes, si se limpiaba la memoria, devolvía 409)
+    # Simula un reinicio real: abre una conexión nueva a la base y verifica
+    # que la fila del diagnóstico existe con los datos esperados.
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        record = db.get(DiagnosisRecord, UUID(session["session_id"]))
+        assert record is not None
+        assert record.score == analyzed["score"]
+        assert record.level == analyzed["level"]
+        assert record.ai_status == "ok"
+    engine.dispose()
+
     stored = client.get(f"{API_PREFIX}/{session['session_id']}/diagnosis")
     assert stored.status_code == 200
-    assert stored.json()["score"] == analyzed["score"]
-    assert stored.json()["level"] == analyzed["level"]
-    assert stored.json()["ai_status"] == "ok"
+    assert stored.json() == analyzed
