@@ -18,7 +18,6 @@ os.environ.setdefault(
 from app.core.config import settings  # noqa: E402
 from app.core.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import session_service  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,7 +71,7 @@ def db_session(migrated_test_database: None) -> Iterator[Session]:
 
 @pytest.fixture(autouse=True)
 def clean_database_tables(migrated_test_database: None) -> Iterator[None]:
-    """Trunca las tablas de la app entre tests y limpia estado en memoria."""
+    """Trunca las tablas de la app entre tests."""
     # Guardia de seguridad: solo la base de tests.
     if not settings.test_database_url:
         pytest.fail("TEST_DATABASE_URL no está configurada.")
@@ -98,9 +97,6 @@ def clean_database_tables(migrated_test_database: None) -> Iterator[None]:
                 text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE")
             )
 
-    # Limpieza residual del estado en memoria aún no migrado.
-    session_service._diagnoses.clear()
-
     yield
 
     with engine.begin() as connection:
@@ -108,7 +104,6 @@ def clean_database_tables(migrated_test_database: None) -> Iterator[None]:
             connection.execute(
                 text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE")
             )
-    session_service._diagnoses.clear()
     engine.dispose()
 
 

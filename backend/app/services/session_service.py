@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.exceptions import AppError
+from app.models.diagnosis import DiagnosisRecord
 from app.models.document import Document
 from app.models.document_file import DocumentFile
 from app.models.extracted_content import ExtractedContentRecord
@@ -30,10 +31,7 @@ from app.schemas.session import (
 )
 from app.services import storage
 
-# Los diagnósticos aún viven en memoria (su repositorio se migrará en una
-# issue posterior). El contenido extraído ya persiste en PostgreSQL.
-_diagnoses: dict[UUID, Diagnosis] = {}
-
+# El contenido extraído y los diagnósticos persisten en PostgreSQL.
 _SYSTEM_USER_EMAIL = "sessions@ayudante-pdf.local"
 
 
@@ -405,13 +403,30 @@ def save_extracted(*args: Any, **kwargs: Any) -> None:
             db.close()
 
 
-def get_diagnosis(session_id: UUID) -> Diagnosis | None:
-    """Devuelve el diagnóstico guardado o ``None`` si todavía no se analizó."""
-    return _diagnoses.get(_resolve_uuid(session_id))
+def get_diagnosis(session_id: UUID, db: Session | None = None) -> Diagnosis | None:
+    """Devuelve el diagnóstico guardado o ``None`` si todavía no se analizó.
+
+    Lee el ``DiagnosisRecord`` de la base de datos y reconstruye el schema
+    ``Diagnosis`` desde su ``payload`` JSONB.
+    """
+    sid = _resolve_uuid(session_id)
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        record = db.get(DiagnosisRecord, sid)
+        if record is None:
+            return None
+        return Diagnosis.model_validate(record.payload)
+    finally:
+        if owns:
+            db.close()
 
 
 def save_diagnosis(*args: Any, **kwargs: Any) -> None:
-    """Guarda el diagnóstico de una sesión en memoria."""
+    """Guarda el diagnóstico de una sesión en la base de datos."""
     diagnosis = kwargs.get("diagnosis")
     db = kwargs.get("db")
     for item in args:
@@ -434,11 +449,33 @@ def save_diagnosis(*args: Any, **kwargs: Any) -> None:
                 message="La sesión solicitada no existe.",
                 status_code=404,
             )
+
+        record = db.get(DiagnosisRecord, diagnosis.session_id)
+        payload = diagnosis.model_dump(mode="json")
+
+        if record is None:
+            record = DiagnosisRecord(
+                document_id=diagnosis.session_id,
+                owner_id=document.owner_id,
+                payload=payload,
+                score=diagnosis.score,
+                level=diagnosis.level.value,
+                ai_status=diagnosis.ai_status.value,
+            )
+            db.add(record)
+        else:
+            record.payload = payload
+            record.score = diagnosis.score
+            record.level = diagnosis.level.value
+            record.ai_status = diagnosis.ai_status.value
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         if owns:
             db.close()
-
-    _diagnoses[diagnosis.session_id] = diagnosis
 
 
 def mark_analyzed(*args: Any, **kwargs: Any) -> SessionResponse:
