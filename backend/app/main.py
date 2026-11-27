@@ -8,7 +8,9 @@ from app.api.v1.endpoints import (
     auth,
     content,
     diagnosis,
+    documents,
     export,
+    folders,
     sessions,
 )
 from app.core.config import settings
@@ -43,6 +45,8 @@ app.include_router(content.router, prefix="/api/v1")
 app.include_router(diagnosis.router, prefix="/api/v1")
 app.include_router(adaptations.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
+app.include_router(documents.router, prefix="/api/v1")
+app.include_router(folders.router, prefix="/api/v1")
 
 register_exception_handlers(app)
 
