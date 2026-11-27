@@ -1,21 +1,33 @@
 # data/
 
-Espacio de trabajo del área de **Data** de Rampa.
+Espacio de trabajo del área de **Data** de Lumi.
 
 ## Propósito
 
-Medir y mejorar la calidad del análisis de accesibilidad que hace la app sobre los materiales educativos. Acá viven:
+Aportar la mirada de datos e IA al producto: qué medir, qué guardar, cuánto cuesta
+la IA y cómo comprobar la calidad de sus respuestas.
 
-- **Set de evaluación**: materiales de ejemplo etiquetados a mano con sus problemas de accesibilidad, para comparar contra lo que detecta el escáner.
-- **Métricas del escáner**: scripts que calculan qué tan bien detecta la app los problemas (precisión, cobertura, errores frecuentes).
-- **Notebooks**: exploración y análisis de resultados.
+**Laboratorio de Data:** Rampa es un prototipo paralelo donde se prueban ideas que
+alimentan las propuestas para Lumi.
+
+## Documentos
+
+| #   | Documento                                         | Contenido                                        |
+| --- | ------------------------------------------------- | ------------------------------------------------ |
+| 00  | [Propuesta](docs/00-propuesta.md)                 | Resumen, prioridades y hoja de ruta. Empezar acá |
+| 01  | [Plan de medición](docs/01-plan-de-medicion.md)   | Qué evaluamos y con qué métricas                 |
+| 02  | [Modelo de datos](docs/02-modelo-de-datos.md)     | Qué persistir y diagrama entidad-relación        |
+| 03  | [Análisis de la IA](docs/03-analisis-ia.md)       | Funcionamiento actual, proveedores y problemas   |
+| 04  | [Economía de la IA](docs/04-economia-ia.md)       | Lotes, caché por hash y cupos                    |
+| 05  | [Calidad y pruebas](docs/05-calidad-y-pruebas.md) | Controles, rúbrica y protocolo de pruebas        |
 
 ## Estructura prevista
 
 ```
 data/
 ├── README.md        # este archivo
-├── evaluation/      # set de evaluación (etiquetas y metadatos, no PDFs pesados)
+├── docs/            # documentación de Data
+├── evaluation/      # resultados de pruebas y, más adelante, materiales etiquetados
 ├── scripts/         # scripts de métricas
 └── notebooks/       # análisis exploratorios
 ```
@@ -30,4 +42,4 @@ Las subcarpetas se van a crear a medida que se necesiten.
 
 ## Responsable
 
-Área de Data — Jorge.
+Área de Data — Jorge Edison Fernandez - edisonjef@gmail.com
