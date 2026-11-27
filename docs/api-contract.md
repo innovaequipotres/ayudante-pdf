@@ -8,8 +8,8 @@ los mocks sin adivinar nombres ni formatos.
   FastAPI a partir de los schemas de Pydantic).
 - **Documentación interactiva:** `GET /docs`.
 - **Todos los nombres de campos, rutas y valores de enum están en inglés.**
-- **Alcance:** issues BE-02 a BE-15 (sesiones, contenido, reglas, puntaje,
-  diagnóstico, análisis con IA, adaptación y exportación).
+- **Alcance:** issues BE-02 a BE-22 (sesiones, contenido, reglas, puntaje,
+  diagnóstico, análisis con IA, adaptación, exportación, autenticación y biblioteca).
 
 > Cualquier cambio de nombre, tipo, valor de enum o ruta se avisa al frontend y
 > se refleja primero en este documento y en `/openapi.json`.
@@ -176,6 +176,14 @@ Equivalencias:
 | `POST` | `/api/v1/sessions/{session_id}/analyze`   | `200` | Ejecuta reglas y, opcionalmente, IA.                     |
 | `GET`  | `/api/v1/sessions/{session_id}/diagnosis` | `200` | Devuelve el diagnóstico guardado.                        |
 | `POST` | `/api/v1/sessions/{session_id}/export`    | `200` | Aplica textos finales y devuelve el PDF adaptado.        |
+| `POST` | `/api/v1/folders`                         | `201` | Crear una carpeta.                                       |
+| `GET`  | `/api/v1/folders`                         | `200` | Listar todas las carpetas del usuario.                   |
+| `GET`  | `/api/v1/folders/{folder_id}`             | `200` | Obtener una carpeta por su ID.                           |
+| `PATCH`| `/api/v1/folders/{folder_id}`             | `200` | Actualizar nombre o carpeta padre.                       |
+| `DELETE`| `/api/v1/folders/{folder_id}`            | `204` | Eliminar una carpeta vacía.                              |
+| `GET`  | `/api/v1/documents`                       | `200` | Listar documentos con filtros opcionales.                |
+| `GET`  | `/api/v1/documents/{document_id}`         | `200` | Obtener un documento por su ID.                          |
+| `PATCH`| `/api/v1/documents/{document_id}`         | `200` | Actualizar nombre o carpeta de un documento.             |
 
 ### 5.1 `POST /api/v1/sessions/file`
 
@@ -377,6 +385,52 @@ curl -s "$BASE/auth/me" -H "Authorization: Bearer $TOKEN" | jq
 No hay refresh tokens, logout, recuperación de contraseña, permisos por rol ni
 rate limiting en esta versión.
 
+### 5.12 Biblioteca de documentos (`/api/v1/folders` y `/api/v1/documents`)
+
+Organización de materiales en carpetas. El usuario MVP es el sistema (`sessions@ayudante-pdf.local`); cuando se active la autenticación (#84), se filtrará por `owner_id`.
+
+#### `POST /api/v1/folders`
+
+- **Request:** [`FolderCreate`](#foldercreate).
+- **Response `201`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found` (padre inexistente), `409 folder_name_conflict`, `422 VALIDATION_ERROR`.
+
+#### `GET /api/v1/folders`
+
+- **Response `200`:** `FolderResponse[]`.
+
+#### `GET /api/v1/folders/{folder_id}`
+
+- **Response `200`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found`.
+
+#### `PATCH /api/v1/folders/{folder_id}`
+
+- **Request:** [`FolderUpdate`](#folderupdate).
+- **Response `200`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found`, `409 folder_name_conflict`, `422 folder_cannot_be_own_parent`, `422 folder_cannot_be_descendant`.
+
+#### `DELETE /api/v1/folders/{folder_id}`
+
+- **Response `204`:** sin cuerpo.
+- **Errores:** `404 folder_not_found`, `409 folder_has_documents`.
+
+#### `GET /api/v1/documents`
+
+- **Query params:** [`DocumentListFilters`](#documentlistfilters) (todos opcionales).
+- **Response `200`:** [`DocumentResponse[]`](#documentresponse).
+
+#### `GET /api/v1/documents/{document_id}`
+
+- **Response `200`:** [`DocumentResponse`](#documentresponse).
+- **Errores:** `404 document_not_found`.
+
+#### `PATCH /api/v1/documents/{document_id}`
+
+- **Request:** [`DocumentUpdate`](#documentupdate).
+- **Response `200`:** [`DocumentResponse`](#documentresponse).
+- **Errores:** `404 document_not_found`, `404 folder_not_found`, `409 document_update_conflict`.
+
 ## 6. Modelos
 
 ### `SessionResponse`
@@ -389,6 +443,60 @@ rate limiting en esta versión.
 | `size_bytes`  | `integer`               | Sí   | Bytes del archivo o del texto en UTF-8.           |
 | `status`      | `SessionStatus`         | No   | `uploaded`, `extracted`, `analyzed`, `completed`. |
 | `created_at`  | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+
+### `FolderCreate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `name`      | `string`        | No   | 1 a 200 caracteres, se recorta.            |
+| `parent_id` | `string` (UUID) | Sí   | ID de la carpeta padre; `null` para raíz.  |
+
+### `FolderResponse`
+
+| Campo        | Tipo                    | Nulo | Descripción                                       |
+| ------------ | ----------------------- | ---- | ------------------------------------------------- |
+| `id`         | `string` (UUID)         | No   | Identificador único de la carpeta.                |
+| `owner_id`   | `string` (UUID)         | No   | Usuario dueño de la carpeta.                      |
+| `parent_id`  | `string` (UUID)         | Sí   | Carpeta padre; `null` si es raíz.                 |
+| `name`       | `string`                | No   | Nombre de la carpeta.                             |
+| `created_at` | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+| `updated_at` | `string` (ISO 8601 UTC) | No   | Fecha de última modificación.                     |
+
+### `FolderUpdate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `name`      | `string`        | Sí   | Nuevo nombre; 1 a 200 caracteres.          |
+| `parent_id` | `string` (UUID) | Sí   | Nueva carpeta padre; `null` para raíz.     |
+
+### `DocumentResponse`
+
+| Campo        | Tipo                    | Nulo | Descripción                                       |
+| ------------ | ----------------------- | ---- | ------------------------------------------------- |
+| `id`         | `string` (UUID)         | No   | Identificador único del documento.                |
+| `owner_id`   | `string` (UUID)         | No   | Usuario dueño del documento.                      |
+| `folder_id`  | `string` (UUID)         | Sí   | Carpeta donde está guardado.                      |
+| `source_type`| `SourceType`            | No   | `pdf` o `text`.                                   |
+| `filename`   | `string`                | Sí   | Nombre del archivo o título.                      |
+| `size_bytes` | `integer`               | No   | Tamaño en bytes.                                  |
+| `status`     | `SessionStatus`         | No   | `uploaded`, `extracted`, `analyzed`, `completed`. |
+| `created_at` | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+| `updated_at` | `string` (ISO 8601 UTC) | No   | Fecha de última modificación.                     |
+
+### `DocumentUpdate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `filename`  | `string`        | Sí   | Nuevo nombre; máximo 200 caracteres.       |
+| `folder_id` | `string` (UUID) | Sí   | Nueva carpeta; `null` para raíz.           |
+
+### `DocumentListFilters`
+
+| Campo       | Tipo            | Nulo | Descripción                                       |
+| ----------- | --------------- | ---- | ------------------------------------------------- |
+| `folder_id` | `string` (UUID) | Sí   | Filtrar por carpeta.                              |
+| `status`    | `SessionStatus` | Sí   | Filtrar por estado.                               |
+| `q`         | `string`        | Sí   | Búsqueda por nombre (case-insensitive).           |
 
 ### `TextInput`
 
@@ -1271,6 +1379,13 @@ Todas las respuestas de error tienen la forma
 | `404` | `HTTP_404`                  | Ruta inexistente.                                                 |
 | `405` | `HTTP_405`                  | Método no permitido para la ruta.                                 |
 | `500` | `INTERNAL_ERROR`            | Error inesperado del servidor.                                    |
+| `404` | `folder_not_found`              | La carpeta indicada no existe.                                    |
+| `409` | `folder_name_conflict`          | Ya existe una carpeta con ese nombre en esta ubicación.           |
+| `409` | `folder_has_documents`          | No se puede eliminar una carpeta que contiene documentos.         |
+| `422` | `folder_cannot_be_own_parent`   | Una carpeta no puede ser su propia padre.                         |
+| `422` | `folder_cannot_be_descendant`   | No se puede mover una carpeta dentro de sí misma.                 |
+| `404` | `document_not_found`            | El documento indicado no existe.                                  |
+| `409` | `document_update_conflict`      | No se pudo actualizar el documento.                               |
 
 Mensajes actuales de los errores de aplicación:
 
