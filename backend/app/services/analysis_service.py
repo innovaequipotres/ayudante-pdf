@@ -2,7 +2,7 @@
 
 El servicio extrae el contenido si hace falta, ejecuta las reglas automáticas
 y, cuando se solicita, complementa el resultado con el análisis semántico de
-la IA. El diagnóstico se guarda en memoria y la sesión pasa a ``analyzed``.
+la IA. El diagnóstico se persiste en PostgreSQL y la sesión pasa a ``analyzed``.
 
 La IA se consulta una sola vez por sesión: si el diagnóstico guardado ya está
 completo (``ai_status="ok"``) se reutiliza, mientras que un resultado
@@ -134,7 +134,7 @@ def analyze(*args: Any, **kwargs: Any) -> Diagnosis:
 
         with _lock_for(sid):
             content = content_service.extract(db, sid)
-            stored = session_service.get_diagnosis(sid)
+            stored = session_service.get_diagnosis(sid, db=db)
 
             if use_ai and stored is not None and stored.ai_status is AiStatus.OK:
                 return stored
@@ -198,7 +198,7 @@ def get_diagnosis(*args: Any, **kwargs: Any) -> Diagnosis:
     try:
         session_service.get_session(db, sid)
 
-        diagnosis = session_service.get_diagnosis(sid)
+        diagnosis = session_service.get_diagnosis(sid, db=db)
         if diagnosis is None:
             raise AppError(
                 code="session_not_analyzed",
