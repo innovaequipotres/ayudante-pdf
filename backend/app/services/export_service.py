@@ -19,9 +19,11 @@ import io
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfbase import pdfmetrics
@@ -425,40 +427,62 @@ def _content_disposition(stem: str) -> str:
     )
 
 
-def export_pdf(session_id: UUID, payload: ExportRequest) -> ExportResult:
-    """Aplica los textos finales y devuelve el PDF con la capa de reemplazo.
+def export_pdf(*args: Any, **kwargs: Any) -> ExportResult:
+    """Aplica los textos finales y devuelve el PDF con la capa de reemplazo."""
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    payload = kwargs.get("payload")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif isinstance(item, ExportRequest) and payload is None:
+            payload = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    if db is None:
+        from app.core.database import SessionLocal
 
-    Raises:
-        AppError: Con los errores de sesión, contenido, validación o PDF
-            documentados para el endpoint de exportación.
-    """
-    session = session_service.get_session(session_id)
+        db = SessionLocal()
+        owns = True
+    else:
+        owns = False
+    if session_id is None or payload is None:
+        if owns:
+            db.close()
+        raise AppError("session_not_found", "La sesión solicitada no existe.", 404)
+    sid = session_id if isinstance(session_id, UUID) else UUID(str(session_id))
 
-    if session.source_type is not SourceType.PDF:
-        raise AppError("export_unavailable", _EXPORT_UNAVAILABLE, 409)
+    try:
+        session = session_service.get_session(db, sid)
 
-    content = content_service.get_content(session_id)
-    edits = _validate_edits(content, payload)
+        if session.source_type is not SourceType.PDF:
+            raise AppError("export_unavailable", _EXPORT_UNAVAILABLE, 409)
 
-    raw = cast(bytes, session_service.get_raw_content(session_id))
-    reader, page_sizes = _read_pdf(raw)
+        content = content_service.get_content(db, sid)
+        edits = _validate_edits(content, payload)
 
-    for edit in edits:
-        page = edit.block.page
-        if page is None or page < 1 or page > len(page_sizes):
-            raise AppError("block_without_bbox", _BLOCK_WITHOUT_BBOX, 422)
+        raw = cast(bytes, session_service.get_raw_content(db, sid))
+        reader, page_sizes = _read_pdf(raw)
 
-    overlay = _build_overlay(page_sizes, edits)
-    edited_pages = {
-        edit.block.page
-        for edit in edits
-        if edit.block.page is not None
-    }
-    exported = _merge_overlay(reader, overlay, edited_pages)
+        for edit in edits:
+            page = edit.block.page
+            if page is None or page < 1 or page > len(page_sizes):
+                raise AppError("block_without_bbox", _BLOCK_WITHOUT_BBOX, 422)
 
-    return ExportResult(
-        content=exported,
-        content_disposition=_content_disposition(
-            _sanitize_filename_stem(session.filename)
-        ),
-    )
+        overlay = _build_overlay(page_sizes, edits)
+        edited_pages = {
+            edit.block.page
+            for edit in edits
+            if edit.block.page is not None
+        }
+        exported = _merge_overlay(reader, overlay, edited_pages)
+
+        return ExportResult(
+            content=exported,
+            content_disposition=_content_disposition(
+                _sanitize_filename_stem(session.filename)
+            ),
+        )
+    finally:
+        if owns:
+            db.close()

@@ -2,8 +2,10 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.diagnosis import Diagnosis
 from app.services import analysis_service
@@ -54,8 +56,9 @@ def analyze_session(
             "de la IA. Con `false` solo se ejecutan las reglas."
         ),
     ),
+    db: Session = Depends(get_db),
 ) -> Diagnosis:
-    return analysis_service.analyze(session_id, use_ai)
+    return analysis_service.analyze(db, session_id, use_ai)
 
 
 @router.get(
@@ -65,5 +68,5 @@ def analyze_session(
     summary="Obtener el diagnóstico guardado de una sesión",
     responses=_DIAGNOSIS_RESPONSES,
 )
-def get_diagnosis(session_id: UUID) -> Diagnosis:
-    return analysis_service.get_diagnosis(session_id)
+def get_diagnosis(session_id: UUID, db: Session = Depends(get_db)) -> Diagnosis:
+    return analysis_service.get_diagnosis(db, session_id)

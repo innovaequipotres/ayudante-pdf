@@ -1,7 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.content import ExtractedContent
 from app.services import content_service
@@ -43,8 +45,8 @@ _CONTENT_RESPONSES = {
     summary="Extraer el contenido de una sesión",
     responses=_EXTRACT_RESPONSES,
 )
-def extract_content(session_id: UUID) -> ExtractedContent:
-    return content_service.extract(session_id)
+def extract_content(session_id: UUID, db: Session = Depends(get_db)) -> ExtractedContent:
+    return content_service.extract(db, session_id)
 
 
 @router.get(
@@ -54,5 +56,5 @@ def extract_content(session_id: UUID) -> ExtractedContent:
     summary="Obtener el contenido extraído de una sesión",
     responses=_CONTENT_RESPONSES,
 )
-def get_content(session_id: UUID) -> ExtractedContent:
-    return content_service.get_content(session_id)
+def get_content(session_id: UUID, db: Session = Depends(get_db)) -> ExtractedContent:
+    return content_service.get_content(db, session_id)

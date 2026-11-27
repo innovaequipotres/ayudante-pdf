@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
 from app.scanner.ai_analysis import analyze_with_ai
@@ -98,74 +101,111 @@ def _analyze_with_ai(blocks: list[ContentBlock]) -> AiAnalysisResult:
         )
 
 
-def analyze(session_id: UUID, use_ai: bool = True) -> Diagnosis:
-    """Analiza una sesión y devuelve su diagnóstico.
+def _resolve_db_session_id_use_ai(args, kwargs):
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    use_ai = kwargs.get("use_ai", True)
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif isinstance(item, bool):
+            use_ai = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    if db is None:
+        from app.core.database import SessionLocal
 
-    Extrae el contenido si todavía no fue extraído y ejecuta siempre las
-    reglas automáticas. Si ``use_ai`` es ``False`` no consulta a la IA. Si el
-    diagnóstico guardado ya está completo, lo reutiliza; si quedó
-    ``unavailable``, reintenta la IA.
+        db = SessionLocal()
+        owns = True
+    else:
+        owns = False
+    if session_id is None:
+        if owns:
+            db.close()
+        raise AppError(code="session_not_found", message="La sesión solicitada no existe.", status_code=404)
+    return db, (session_id if isinstance(session_id, UUID) else UUID(str(session_id))), bool(use_ai), owns
 
-    Raises:
-        AppError: Si la sesión no existe (404) o si el contenido no se puede
-            extraer (422).
-    """
-    session_service.get_session(session_id)
 
-    with _lock_for(session_id):
-        content = content_service.extract(session_id)
-        stored = session_service.get_diagnosis(session_id)
+def analyze(*args: Any, **kwargs: Any) -> Diagnosis:
+    """Analiza una sesión y devuelve su diagnóstico."""
+    db, sid, use_ai, owns = _resolve_db_session_id_use_ai(args, kwargs)
+    try:
+        session_service.get_session(db, sid)
 
-        if use_ai and stored is not None and stored.ai_status is AiStatus.OK:
-            return stored
+        with _lock_for(sid):
+            content = content_service.extract(db, sid)
+            stored = session_service.get_diagnosis(sid)
 
-        rule_observations = run_rules(content)
+            if use_ai and stored is not None and stored.ai_status is AiStatus.OK:
+                return stored
 
-        if not use_ai:
-            if stored is not None and stored.ai_status is AiStatus.OK:
-                # No se pisa un diagnóstico completo: el GET sigue
-                # devolviendo las observaciones de IA ya calculadas.
-                return _rules_only_diagnosis(session_id, rule_observations)
+            rule_observations = run_rules(content)
 
-            diagnosis = _rules_only_diagnosis(session_id, rule_observations)
-            session_service.save_diagnosis(diagnosis)
-            session_service.mark_analyzed(session_id)
+            if not use_ai:
+                if stored is not None and stored.ai_status is AiStatus.OK:
+                    return _rules_only_diagnosis(sid, rule_observations)
+
+                diagnosis = _rules_only_diagnosis(sid, rule_observations)
+                session_service.save_diagnosis(diagnosis, db=db)
+                session_service.mark_analyzed(db, sid)
+                return diagnosis
+
+            logger.info("analisis IA solicitado session_id=%s", sid)
+            ai_result = _analyze_with_ai(content.blocks)
+
+            observations = _merge_observations(
+                rule_observations,
+                ai_result.observations,
+                content,
+            )
+            diagnosis = build_diagnosis(
+                sid,
+                observations,
+                ai_status=ai_result.status,
+                ai_notice=ai_result.notice,
+                ai_truncated=ai_result.truncated,
+            )
+            session_service.save_diagnosis(diagnosis, db=db)
+            session_service.mark_analyzed(db, sid)
             return diagnosis
+    finally:
+        if owns:
+            db.close()
 
-        logger.info("analisis IA solicitado session_id=%s", session_id)
-        ai_result = _analyze_with_ai(content.blocks)
 
-        observations = _merge_observations(
-            rule_observations,
-            ai_result.observations,
-            content,
-        )
-        diagnosis = build_diagnosis(
-            session_id,
-            observations,
-            ai_status=ai_result.status,
-            ai_notice=ai_result.notice,
-            ai_truncated=ai_result.truncated,
-        )
-        session_service.save_diagnosis(diagnosis)
-        session_service.mark_analyzed(session_id)
+def get_diagnosis(*args: Any, **kwargs: Any) -> Diagnosis:
+    """Devuelve el diagnóstico guardado de una sesión."""
+    db = kwargs.get("db")
+    session_id = kwargs.get("session_id")
+    for item in args:
+        if isinstance(item, Session) and db is None:
+            db = item
+        elif (isinstance(item, UUID) or isinstance(item, str)) and session_id is None:
+            session_id = item
+    if db is None:
+        from app.core.database import SessionLocal
+
+        db = SessionLocal()
+        owns = True
+    else:
+        owns = False
+    if session_id is None:
+        if owns:
+            db.close()
+        raise AppError(code="session_not_found", message="La sesión solicitada no existe.", status_code=404)
+    sid = session_id if isinstance(session_id, UUID) else UUID(str(session_id))
+
+    try:
+        session_service.get_session(db, sid)
+
+        diagnosis = session_service.get_diagnosis(sid)
+        if diagnosis is None:
+            raise AppError(
+                code="session_not_analyzed",
+                message="La sesión todavía no fue analizada.",
+                status_code=409,
+            )
         return diagnosis
-
-
-def get_diagnosis(session_id: UUID) -> Diagnosis:
-    """Devuelve el diagnóstico guardado de una sesión.
-
-    Raises:
-        AppError: Si la sesión no existe (404) o si todavía no fue analizada
-            (409).
-    """
-    session_service.get_session(session_id)
-
-    diagnosis = session_service.get_diagnosis(session_id)
-    if diagnosis is None:
-        raise AppError(
-            code="session_not_analyzed",
-            message="La sesión todavía no fue analizada.",
-            status_code=409,
-        )
-    return diagnosis
+    finally:
+        if owns:
+            db.close()

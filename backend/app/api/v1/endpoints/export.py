@@ -2,9 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import Response
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.export import ExportRequest
 from app.services import export_service
@@ -49,8 +51,10 @@ _EXPORT_RESPONSES = {
     summary="Aplicar los textos finales y exportar el PDF adaptado",
     responses=_EXPORT_RESPONSES,
 )
-def export_pdf(session_id: UUID, payload: ExportRequest) -> Response:
-    result = export_service.export_pdf(session_id, payload)
+def export_pdf(
+    session_id: UUID, payload: ExportRequest, db: Session = Depends(get_db)
+) -> Response:
+    result = export_service.export_pdf(db, session_id, payload)
     return Response(
         content=result.content,
         media_type="application/pdf",

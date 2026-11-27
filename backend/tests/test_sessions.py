@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.services import session_service
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 API_PREFIX = "/api/v1/sessions"
 
@@ -150,7 +152,10 @@ def test_get_raw_content_from_pdf(
         files={"file": ("clase.pdf", pdf_content, "application/pdf")},
     ).json()
 
-    raw = session_service.get_raw_content(UUID(created["session_id"]))
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        raw = session_service.get_raw_content(db, UUID(created["session_id"]))
+    engine.dispose()
 
     assert raw == pdf_content
 
@@ -160,14 +165,20 @@ def test_get_raw_content_from_text(client: TestClient) -> None:
         f"{API_PREFIX}/text", json={"text": "Contenido original"}
     ).json()
 
-    raw = session_service.get_raw_content(UUID(created["session_id"]))
+    engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+    with Session(engine) as db:
+        raw = session_service.get_raw_content(db, UUID(created["session_id"]))
+    engine.dispose()
 
     assert raw == "Contenido original"
 
 
 def test_get_raw_content_of_unknown_session() -> None:
     with pytest.raises(AppError) as error:
-        session_service.get_raw_content(uuid4())
+        engine = create_engine(settings.test_database_url, pool_pre_ping=True)
+        with Session(engine) as db:
+            session_service.get_raw_content(db, uuid4())
+        engine.dispose()
 
     assert error.value.code == "session_not_found"
     assert error.value.status_code == 404
