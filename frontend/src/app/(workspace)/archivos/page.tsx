@@ -72,7 +72,7 @@ function MisArchivosPage() {
       return {
         id: document.id,
         name: document.name,
-        groupName: folder?.name ?? "Mis archivos (sin carpeta)",
+        groupName: folder?.name ?? "Mis documentos (sin carpeta)",
         groupId: document.folderId,
         color: folder?.color ?? "#94A3B8",
         status: document.status,
@@ -211,7 +211,7 @@ function MisArchivosPage() {
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <header className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <h1 className="page-title">Mis archivos</h1>
+            <h1 className="page-title">Mis documentos</h1>
             <p className="page-subtitle mt-2">
               Organizá tus documentos en carpetas.
             </p>
@@ -419,7 +419,7 @@ function MisArchivosPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-semibold">
-                  Mis archivos (sin carpeta)
+                  Mis documentos (sin carpeta)
                 </span>
                 <span className="mt-1 block text-sm text-slate-500">
                   {visibleRootDocuments.length} archivo(s)
@@ -558,7 +558,7 @@ export default function ArchivosPage() {
     <Suspense
       fallback={
         <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">
-          Cargando Mis archivos...
+          Cargando Mis documentos...
         </div>
       }
     >

@@ -13,7 +13,7 @@ import {
 
 const navigation = [
   { label: "Inicio", href: "/inicio", icon: House },
-  { label: "Mis archivos", href: "/archivos", icon: FolderOpen },
+  { label: "Mis documentos", href: "/archivos", icon: FolderOpen },
   { label: "Historial", href: "/historial", icon: History },
 ];
 
