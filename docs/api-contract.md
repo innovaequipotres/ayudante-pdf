@@ -8,8 +8,9 @@ los mocks sin adivinar nombres ni formatos.
   FastAPI a partir de los schemas de Pydantic).
 - **Documentación interactiva:** `GET /docs`.
 - **Todos los nombres de campos, rutas y valores de enum están en inglés.**
-- **Alcance:** issues BE-02 a BE-15 (sesiones, contenido, reglas, puntaje,
-  diagnóstico, análisis con IA, adaptación y exportación).
+- **Alcance:** issues BE-02 a BE-23 (sesiones, contenido, reglas, puntaje,
+  diagnóstico, análisis con IA, adaptación, exportación, autenticación,
+  biblioteca y ediciones persistidas).
 
 > Cualquier cambio de nombre, tipo, valor de enum o ruta se avisa al frontend y
 > se refleja primero en este documento y en `/openapi.json`.
@@ -97,6 +98,7 @@ una capa visual de reemplazo.
 | `uploaded`  | Al crear la sesión.                                   |
 | `extracted` | Después de `POST /extract`.                           |
 | `analyzed`  | Después de `POST /analyze` (aunque la IA falle).      |
+| `editing`   | Al guardar ediciones con `PUT /documents/{id}/edits`. |
 | `completed` | Reservado para una etapa posterior; hoy no se asigna. |
 
 ## 3. Convenciones
@@ -176,6 +178,16 @@ Equivalencias:
 | `POST` | `/api/v1/sessions/{session_id}/analyze`   | `200` | Ejecuta reglas y, opcionalmente, IA.                     |
 | `GET`  | `/api/v1/sessions/{session_id}/diagnosis` | `200` | Devuelve el diagnóstico guardado.                        |
 | `POST` | `/api/v1/sessions/{session_id}/export`    | `200` | Aplica textos finales y devuelve el PDF adaptado.        |
+| `POST` | `/api/v1/folders`                         | `201` | Crear una carpeta.                                       |
+| `GET`  | `/api/v1/folders`                         | `200` | Listar todas las carpetas del usuario.                   |
+| `GET`  | `/api/v1/folders/{folder_id}`             | `200` | Obtener una carpeta por su ID.                           |
+| `PATCH`| `/api/v1/folders/{folder_id}`             | `200` | Actualizar nombre o carpeta padre.                       |
+| `DELETE`| `/api/v1/folders/{folder_id}`            | `204` | Eliminar una carpeta vacía.                              |
+| `GET`  | `/api/v1/documents`                       | `200` | Listar documentos con filtros opcionales.                |
+| `GET`  | `/api/v1/documents/{document_id}`         | `200` | Obtener un documento por su ID.                          |
+| `PATCH`| `/api/v1/documents/{document_id}`         | `200` | Actualizar nombre o carpeta de un documento.             |
+| `PUT`  | `/api/v1/documents/{document_id}/edits`   | `200` | Reemplaza ediciones y estados de barreras.                 |
+| `GET`  | `/api/v1/documents/{document_id}/edits`   | `200` | Devuelve las ediciones y estados guardados.                |
 
 ### 5.1 `POST /api/v1/sessions/file`
 
@@ -377,6 +389,76 @@ curl -s "$BASE/auth/me" -H "Authorization: Bearer $TOKEN" | jq
 No hay refresh tokens, logout, recuperación de contraseña, permisos por rol ni
 rate limiting en esta versión.
 
+### 5.12 Biblioteca de documentos (`/api/v1/folders` y `/api/v1/documents`)
+
+Organización de materiales en carpetas. El usuario MVP es el sistema (`sessions@ayudante-pdf.local`); cuando se active la autenticación (#84), se filtrará por `owner_id`.
+
+#### `POST /api/v1/folders`
+
+- **Request:** [`FolderCreate`](#foldercreate).
+- **Response `201`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found` (padre inexistente), `409 folder_name_conflict`, `422 VALIDATION_ERROR`.
+
+#### `GET /api/v1/folders`
+
+- **Response `200`:** `FolderResponse[]`.
+
+#### `GET /api/v1/folders/{folder_id}`
+
+- **Response `200`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found`.
+
+#### `PATCH /api/v1/folders/{folder_id}`
+
+- **Request:** [`FolderUpdate`](#folderupdate).
+- **Response `200`:** [`FolderResponse`](#folderresponse).
+- **Errores:** `404 folder_not_found`, `409 folder_name_conflict`, `422 folder_cannot_be_own_parent`, `422 folder_cannot_be_descendant`.
+
+#### `DELETE /api/v1/folders/{folder_id}`
+
+- **Response `204`:** sin cuerpo.
+- **Errores:** `404 folder_not_found`, `409 folder_has_documents`.
+
+#### `GET /api/v1/documents`
+
+- **Query params:** [`DocumentListFilters`](#documentlistfilters) (todos opcionales).
+- **Response `200`:** [`DocumentResponse[]`](#documentresponse).
+
+#### `GET /api/v1/documents/{document_id}`
+
+- **Response `200`:** [`DocumentResponse`](#documentresponse).
+- **Errores:** `404 document_not_found`.
+
+#### `PATCH /api/v1/documents/{document_id}`
+
+- **Request:** [`DocumentUpdate`](#documentupdate).
+- **Response `200`:** [`DocumentResponse`](#documentresponse).
+- **Errores:** `404 document_not_found`, `404 folder_not_found`, `409 document_update_conflict`.
+
+### 5.13 Ediciones y estados de barreras (`/api/v1/documents/{document_id}/edits`)
+
+Guarda el trabajo del docente sin tocar el original. Las ediciones viven en
+`document_edits` y los estados de barreras en `observation_states`; el contenido
+original (`document_files` y `extracted_contents`) nunca se modifica.
+
+#### `PUT /api/v1/documents/{document_id}/edits`
+
+- **Request:** [`EditsPayload`](#editspayload). Semántica de **reemplazo total**:
+  un PUT borra las ediciones y estados anteriores del documento y guarda los nuevos.
+- **Response `200`:** [`EditsResponse`](#editsresponse).
+- **Efecto:** el documento pasa a estado `editing` (si no estaba `completed`).
+- **Validaciones:** cada `block_id` debe existir en el contenido extraído y cada
+  `observation_id` en el diagnóstico. Si el documento todavía no tiene contenido
+  extraído o diagnóstico, ningún id es válido.
+- **Errores:** `404 document_not_found`, `422 invalid_block_id`,
+  `422 invalid_observation_id`, `422 VALIDATION_ERROR`, `409 edit_save_conflict`.
+
+#### `GET /api/v1/documents/{document_id}/edits`
+
+- **Response `200`:** [`EditsResponse`](#editsresponse). Sin ediciones guardadas
+  devuelve listas vacías (no es un error).
+- **Errores:** `404 document_not_found`.
+
 ## 6. Modelos
 
 ### `SessionResponse`
@@ -389,6 +471,89 @@ rate limiting en esta versión.
 | `size_bytes`  | `integer`               | Sí   | Bytes del archivo o del texto en UTF-8.           |
 | `status`      | `SessionStatus`         | No   | `uploaded`, `extracted`, `analyzed`, `completed`. |
 | `created_at`  | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+
+### `FolderCreate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `name`      | `string`        | No   | 1 a 200 caracteres, se recorta.            |
+| `parent_id` | `string` (UUID) | Sí   | ID de la carpeta padre; `null` para raíz.  |
+
+### `FolderResponse`
+
+| Campo        | Tipo                    | Nulo | Descripción                                       |
+| ------------ | ----------------------- | ---- | ------------------------------------------------- |
+| `id`         | `string` (UUID)         | No   | Identificador único de la carpeta.                |
+| `owner_id`   | `string` (UUID)         | No   | Usuario dueño de la carpeta.                      |
+| `parent_id`  | `string` (UUID)         | Sí   | Carpeta padre; `null` si es raíz.                 |
+| `name`       | `string`                | No   | Nombre de la carpeta.                             |
+| `created_at` | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+| `updated_at` | `string` (ISO 8601 UTC) | No   | Fecha de última modificación.                     |
+
+### `FolderUpdate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `name`      | `string`        | Sí   | Nuevo nombre; 1 a 200 caracteres.          |
+| `parent_id` | `string` (UUID) | Sí   | Nueva carpeta padre; `null` para raíz.     |
+
+### `DocumentResponse`
+
+| Campo        | Tipo                    | Nulo | Descripción                                       |
+| ------------ | ----------------------- | ---- | ------------------------------------------------- |
+| `id`         | `string` (UUID)         | No   | Identificador único del documento.                |
+| `owner_id`   | `string` (UUID)         | No   | Usuario dueño del documento.                      |
+| `folder_id`  | `string` (UUID)         | Sí   | Carpeta donde está guardado.                      |
+| `source_type`| `SourceType`            | No   | `pdf` o `text`.                                   |
+| `filename`   | `string`                | Sí   | Nombre del archivo o título.                      |
+| `size_bytes` | `integer`               | No   | Tamaño en bytes.                                  |
+| `status`     | `SessionStatus`         | No   | `uploaded`, `extracted`, `analyzed`, `completed`. |
+| `created_at` | `string` (ISO 8601 UTC) | No   | Fecha de creación.                                |
+| `updated_at` | `string` (ISO 8601 UTC) | No   | Fecha de última modificación.                     |
+
+### `DocumentUpdate`
+
+| Campo       | Tipo            | Nulo | Restricciones                              |
+| ----------- | --------------- | ---- | ------------------------------------------ |
+| `filename`  | `string`        | Sí   | Nuevo nombre; máximo 200 caracteres.       |
+| `folder_id` | `string` (UUID) | Sí   | Nueva carpeta; `null` para raíz.           |
+
+### `DocumentListFilters`
+
+| Campo       | Tipo            | Nulo | Descripción                                       |
+| ----------- | --------------- | ---- | ------------------------------------------------- |
+| `folder_id` | `string` (UUID) | Sí   | Filtrar por carpeta.                              |
+| `status`    | `SessionStatus` | Sí   | Filtrar por estado.                               |
+| `q`         | `string`        | Sí   | Búsqueda por nombre (case-insensitive).           |
+
+### `EditsPayload`
+
+| Campo                | Tipo                   | Requerido | Descripción                          |
+| -------------------- | ---------------------- | --------- | ------------------------------------ |
+| `edits`              | `DocumentEdit[]`       | No        | Lista de bloques editados (puede ser `[]`). |
+| `observation_states` | `ObservationStateItem[]` | No      | Lista de estados de barreras (puede ser `[]`). |
+
+### `DocumentEdit`
+
+| Campo      | Tipo     | Nulo | Restricciones                          |
+| ---------- | -------- | ---- | -------------------------------------- |
+| `block_id` | `string` | No   | Debe existir en el contenido extraído. |
+| `text`     | `string` | No   | 1 a 8.000 caracteres.                  |
+
+### `ObservationStateItem`
+
+| Campo            | Tipo               | Nulo | Restricciones                              |
+| ---------------- | ------------------ | ---- | ------------------------------------------ |
+| `observation_id` | `string`           | No   | Debe existir en el diagnóstico.            |
+| `state`          | `ObservationState` | No   | `pending`, `applied` o `ignored`.          |
+
+### `EditsResponse`
+
+| Campo                | Tipo                     | Nulo | Descripción                        |
+| -------------------- | ------------------------ | ---- | ---------------------------------- |
+| `document_id`        | `string` (UUID)          | No   | Documento dueño de las ediciones.  |
+| `edits`              | `DocumentEdit[]`         | No   | Ediciones guardadas.               |
+| `observation_states` | `ObservationStateItem[]` | No   | Estados de barreras guardados.     |
 
 ### `TextInput`
 
@@ -604,7 +769,8 @@ Ningún schema de respuesta incluye `password` ni `password_hash`.
 | Enum                | Valores                                                                              |
 | ------------------- | ------------------------------------------------------------------------------------ |
 | `SourceType`        | `pdf`, `text`                                                                        |
-| `SessionStatus`     | `uploaded`, `extracted`, `analyzed`, `completed`                                     |
+| `SessionStatus`     | `uploaded`, `extracted`, `analyzed`, `editing`, `completed`                |
+| `ObservationState`  | `pending`, `applied`, `ignored`                                            |
 | `BlockType`         | `heading`, `paragraph`, `list`, `image`                                              |
 | `Category`          | `comprehension`, `structure`, `visual`, `representation`, `multimedia`, `navigation` |
 | `Severity`          | `high`, `medium`, `low`                                                              |
@@ -1271,6 +1437,16 @@ Todas las respuestas de error tienen la forma
 | `404` | `HTTP_404`                  | Ruta inexistente.                                                 |
 | `405` | `HTTP_405`                  | Método no permitido para la ruta.                                 |
 | `500` | `INTERNAL_ERROR`            | Error inesperado del servidor.                                    |
+| `404` | `folder_not_found`              | La carpeta indicada no existe.                                    |
+| `409` | `folder_name_conflict`          | Ya existe una carpeta con ese nombre en esta ubicación.           |
+| `409` | `folder_has_documents`          | No se puede eliminar una carpeta que contiene documentos.         |
+| `422` | `folder_cannot_be_own_parent`   | Una carpeta no puede ser su propia padre.                         |
+| `422` | `folder_cannot_be_descendant`   | No se puede mover una carpeta dentro de sí misma.                 |
+| `404` | `document_not_found`            | El documento indicado no existe.                                  |
+| `409` | `document_update_conflict`      | No se pudo actualizar el documento.                               |
+| `422` | `invalid_block_id`              | El `block_id` no existe en el contenido extraído (o no hay contenido). |
+| `422` | `invalid_observation_id`        | El `observation_id` no existe en el diagnóstico (o no hay diagnóstico). |
+| `409` | `edit_save_conflict`            | No se pudieron guardar las ediciones.                                |
 
 Mensajes actuales de los errores de aplicación:
 
@@ -1415,3 +1591,8 @@ Debe listar las 9 rutas de negocio más `/` y `/health`.
   `email_already_registered`, `invalid_credentials` e `invalid_token`. Son
   rutas nuevas y aditivas: ninguna ruta existente cambia ni queda protegida en
   esta issue.
+- **BE-23:** se agregan `PUT` y `GET /api/v1/documents/{document_id}/edits`,
+  los modelos `EditsPayload`, `DocumentEdit`, `ObservationStateItem` y
+  `EditsResponse`, el enum `ObservationState`, el estado `editing` en
+  `SessionStatus` y los errores `invalid_block_id`, `invalid_observation_id`
+  y `edit_save_conflict`. Rutas nuevas y aditivas: ninguna ruta existente cambia.
