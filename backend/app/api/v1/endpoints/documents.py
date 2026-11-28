@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.document import DocumentListFilters, DocumentResponse, DocumentUpdate
+from app.schemas.edit import EditsPayload, EditsResponse
 from app.services import document_service
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -61,3 +62,44 @@ def update_document(
     db: Session = Depends(get_db),
 ) -> DocumentResponse:
     return document_service.update_document(db, document_id, payload)
+
+@router.put(
+    "/{document_id}/edits",
+    response_model=EditsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Guardar ediciones y estados de barreras de un documento",
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "Documento no encontrado (`document_not_found`).",
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "model": ErrorResponse,
+            "description": "Block ID u observation ID inexistente (`invalid_block_id`, `invalid_observation_id`).",
+        },
+    },
+)
+def save_edits(
+    document_id: UUID,
+    payload: EditsPayload,
+    db: Session = Depends(get_db),
+) -> EditsResponse:
+    return document_service.save_edits(db, document_id, payload)
+
+
+@router.get(
+    "/{document_id}/edits",
+    response_model=EditsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener ediciones y estados guardados de un documento",
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "Documento no encontrado (`document_not_found`).",
+        },
+    },
+)
+def get_edits(
+    document_id: UUID, db: Session = Depends(get_db)
+) -> EditsResponse:
+    return document_service.get_edits(db, document_id)
