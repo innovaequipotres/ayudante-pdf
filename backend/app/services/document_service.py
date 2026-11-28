@@ -14,6 +14,16 @@ from app.core.exceptions import AppError
 from app.models.document import Document
 from app.models.folder import Folder
 from app.models.user import User
+from app.models.document_edit import DocumentEdit
+from app.models.observation_state import ObservationStateRecord
+from app.schemas.edit import (
+    DocumentEdit as DocumentEditSchema,
+    EditsPayload,
+    EditsResponse,
+    ObservationStateItem,
+)
+from app.models.extracted_content import ExtractedContentRecord
+from app.models.diagnosis import DiagnosisRecord
 from app.schemas.document import DocumentListFilters, DocumentResponse, DocumentUpdate
 from app.schemas.session import SessionStatus
 
@@ -188,6 +198,196 @@ def update_document(*args: Any, **kwargs: Any) -> DocumentResponse:
 
         db.refresh(document)
         return _to_response(document)
+    finally:
+        if owns:
+            db.close()
+
+def save_edits(*args: Any, **kwargs: Any) -> EditsResponse:
+    """Guarda (reemplaza) las ediciones y estados de un documento.
+
+    Valida que cada block_id exista en el contenido extraído y cada
+    observation_id exista en el diagnóstico. Cambia el estado del documento
+    a 'editing' sin tocar el contenido original.
+    """
+    document_id = kwargs.get("document_id")
+    payload = kwargs.get("payload")
+    db = kwargs.get("db")
+    for item in args:
+        if isinstance(item, UUID) and document_id is None:
+            document_id = item
+        elif isinstance(item, str) and document_id is None:
+            document_id = item
+        elif isinstance(item, EditsPayload) and payload is None:
+            payload = item
+        elif isinstance(item, Session) and db is None:
+            db = item
+
+    if document_id is None or payload is None:
+        raise TypeError("save_edits requiere document_id y payload.")
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        document = db.get(Document, _resolve_uuid(document_id))
+        if document is None:
+            raise AppError(
+                code="document_not_found",
+                message="El documento solicitado no existe.",
+                status_code=404,
+            )
+
+        # Validar block_ids contra el contenido extraído
+        extracted = db.get(ExtractedContentRecord, document.id)
+        if extracted is not None:
+            valid_block_ids = {
+                block["id"] for block in extracted.payload.get("blocks", [])
+            }
+            for edit in payload.edits:
+                if edit.block_id not in valid_block_ids:
+                    raise AppError(
+                        code="invalid_block_id",
+                        message=f"El bloque '{edit.block_id}' no existe en el contenido extraído.",
+                        status_code=422,
+                    )
+
+        # Validar observation_ids contra el diagnóstico
+        diagnosis = db.get(DiagnosisRecord, document.id)
+        if diagnosis is not None:
+            valid_observation_ids = {
+                obs["id"]
+                for obs in diagnosis.payload.get("observations", [])
+            }
+            for state in payload.observation_states:
+                if state.observation_id not in valid_observation_ids:
+                    raise AppError(
+                        code="invalid_observation_id",
+                        message=f"La observación '{state.observation_id}' no existe en el diagnóstico.",
+                        status_code=422,
+                    )
+
+        # Reemplazar ediciones (DELETE + INSERT)
+        db.query(DocumentEdit).filter(DocumentEdit.document_id == document.id).delete()
+        for edit in payload.edits:
+            db.add(
+                DocumentEdit(
+                    document_id=document.id,
+                    owner_id=document.owner_id,
+                    block_id=edit.block_id,
+                    text=edit.text,
+                )
+            )
+
+        # Reemplazar estados (DELETE + INSERT)
+        db.query(ObservationStateRecord).filter(
+            ObservationStateRecord.document_id == document.id
+        ).delete()
+        for state in payload.observation_states:
+            db.add(
+                ObservationStateRecord(
+                    document_id=document.id,
+                    owner_id=document.owner_id,
+                    observation_id=state.observation_id,
+                    state=state.state.value,
+                )
+            )
+
+        # Cambiar estado del documento a 'editing'
+        if document.status != "completed":
+            document.status = "editing"
+
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise AppError(
+                code="edit_save_conflict",
+                message="No se pudieron guardar las ediciones.",
+                status_code=409,
+            ) from None
+
+        db.refresh(document)
+
+        return EditsResponse(
+            document_id=str(document.id),
+            edits=[
+                DocumentEditSchema(block_id=e.block_id, text=e.text)
+                for e in db.query(DocumentEdit)
+                .filter(DocumentEdit.document_id == document.id)
+                .all()
+            ],
+            observation_states=[
+                ObservationStateItem(
+                    observation_id=s.observation_id, state=s.state
+                )
+                for s in db.query(ObservationStateRecord)
+                .filter(ObservationStateRecord.document_id == document.id)
+                .all()
+            ],
+        )
+    except Exception:
+        if owns:
+            db.rollback()
+        raise
+    finally:
+        if owns:
+            db.close()
+
+
+def get_edits(*args: Any, **kwargs: Any) -> EditsResponse:
+    """Devuelve las ediciones y estados guardados de un documento."""
+    document_id = kwargs.get("document_id")
+    db = kwargs.get("db")
+    for item in args:
+        if isinstance(item, UUID) and document_id is None:
+            document_id = item
+        elif isinstance(item, str) and document_id is None:
+            document_id = item
+        elif isinstance(item, Session) and db is None:
+            db = item
+
+    if document_id is None:
+        raise AppError(
+            code="document_not_found",
+            message="El documento solicitado no existe.",
+            status_code=404,
+        )
+
+    owns = db is None
+    if owns:
+        db = SessionLocal()
+
+    try:
+        document = db.get(Document, _resolve_uuid(document_id))
+        if document is None:
+            raise AppError(
+                code="document_not_found",
+                message="El documento solicitado no existe.",
+                status_code=404,
+            )
+
+        edits = (
+            db.query(DocumentEdit)
+            .filter(DocumentEdit.document_id == document.id)
+            .all()
+        )
+        states = (
+            db.query(ObservationStateRecord)
+            .filter(ObservationStateRecord.document_id == document.id)
+            .all()
+        )
+
+        return EditsResponse(
+            document_id=str(document.id),
+            edits=[
+                DocumentEditSchema(block_id=e.block_id, text=e.text) for e in edits
+            ],
+            observation_states=[
+                ObservationStateItem(observation_id=s.observation_id, state=s.state)
+                for s in states
+            ],
+        )
     finally:
         if owns:
             db.close()
