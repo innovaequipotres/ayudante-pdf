@@ -8,8 +8,9 @@ los mocks sin adivinar nombres ni formatos.
   FastAPI a partir de los schemas de Pydantic).
 - **Documentación interactiva:** `GET /docs`.
 - **Todos los nombres de campos, rutas y valores de enum están en inglés.**
-- **Alcance:** issues BE-02 a BE-22 (sesiones, contenido, reglas, puntaje,
-  diagnóstico, análisis con IA, adaptación, exportación, autenticación y biblioteca).
+- **Alcance:** issues BE-02 a BE-23 (sesiones, contenido, reglas, puntaje,
+  diagnóstico, análisis con IA, adaptación, exportación, autenticación,
+  biblioteca y ediciones persistidas).
 
 > Cualquier cambio de nombre, tipo, valor de enum o ruta se avisa al frontend y
 > se refleja primero en este documento y en `/openapi.json`.
@@ -97,6 +98,7 @@ una capa visual de reemplazo.
 | `uploaded`  | Al crear la sesión.                                   |
 | `extracted` | Después de `POST /extract`.                           |
 | `analyzed`  | Después de `POST /analyze` (aunque la IA falle).      |
+| `editing`   | Al guardar ediciones con `PUT /documents/{id}/edits`. |
 | `completed` | Reservado para una etapa posterior; hoy no se asigna. |
 
 ## 3. Convenciones
@@ -184,6 +186,8 @@ Equivalencias:
 | `GET`  | `/api/v1/documents`                       | `200` | Listar documentos con filtros opcionales.                |
 | `GET`  | `/api/v1/documents/{document_id}`         | `200` | Obtener un documento por su ID.                          |
 | `PATCH`| `/api/v1/documents/{document_id}`         | `200` | Actualizar nombre o carpeta de un documento.             |
+| `PUT`  | `/api/v1/documents/{document_id}/edits`   | `200` | Reemplaza ediciones y estados de barreras.                 |
+| `GET`  | `/api/v1/documents/{document_id}/edits`   | `200` | Devuelve las ediciones y estados guardados.                |
 
 ### 5.1 `POST /api/v1/sessions/file`
 
@@ -431,6 +435,30 @@ Organización de materiales en carpetas. El usuario MVP es el sistema (`sessions
 - **Response `200`:** [`DocumentResponse`](#documentresponse).
 - **Errores:** `404 document_not_found`, `404 folder_not_found`, `409 document_update_conflict`.
 
+### 5.13 Ediciones y estados de barreras (`/api/v1/documents/{document_id}/edits`)
+
+Guarda el trabajo del docente sin tocar el original. Las ediciones viven en
+`document_edits` y los estados de barreras en `observation_states`; el contenido
+original (`document_files` y `extracted_contents`) nunca se modifica.
+
+#### `PUT /api/v1/documents/{document_id}/edits`
+
+- **Request:** [`EditsPayload`](#editspayload). Semántica de **reemplazo total**:
+  un PUT borra las ediciones y estados anteriores del documento y guarda los nuevos.
+- **Response `200`:** [`EditsResponse`](#editsresponse).
+- **Efecto:** el documento pasa a estado `editing` (si no estaba `completed`).
+- **Validaciones:** cada `block_id` debe existir en el contenido extraído y cada
+  `observation_id` en el diagnóstico. Si el documento todavía no tiene contenido
+  extraído o diagnóstico, ningún id es válido.
+- **Errores:** `404 document_not_found`, `422 invalid_block_id`,
+  `422 invalid_observation_id`, `422 VALIDATION_ERROR`, `409 edit_save_conflict`.
+
+#### `GET /api/v1/documents/{document_id}/edits`
+
+- **Response `200`:** [`EditsResponse`](#editsresponse). Sin ediciones guardadas
+  devuelve listas vacías (no es un error).
+- **Errores:** `404 document_not_found`.
+
 ## 6. Modelos
 
 ### `SessionResponse`
@@ -497,6 +525,35 @@ Organización de materiales en carpetas. El usuario MVP es el sistema (`sessions
 | `folder_id` | `string` (UUID) | Sí   | Filtrar por carpeta.                              |
 | `status`    | `SessionStatus` | Sí   | Filtrar por estado.                               |
 | `q`         | `string`        | Sí   | Búsqueda por nombre (case-insensitive).           |
+
+### `EditsPayload`
+
+| Campo                | Tipo                   | Requerido | Descripción                          |
+| -------------------- | ---------------------- | --------- | ------------------------------------ |
+| `edits`              | `DocumentEdit[]`       | No        | Lista de bloques editados (puede ser `[]`). |
+| `observation_states` | `ObservationStateItem[]` | No      | Lista de estados de barreras (puede ser `[]`). |
+
+### `DocumentEdit`
+
+| Campo      | Tipo     | Nulo | Restricciones                          |
+| ---------- | -------- | ---- | -------------------------------------- |
+| `block_id` | `string` | No   | Debe existir en el contenido extraído. |
+| `text`     | `string` | No   | 1 a 8.000 caracteres.                  |
+
+### `ObservationStateItem`
+
+| Campo            | Tipo               | Nulo | Restricciones                              |
+| ---------------- | ------------------ | ---- | ------------------------------------------ |
+| `observation_id` | `string`           | No   | Debe existir en el diagnóstico.            |
+| `state`          | `ObservationState` | No   | `pending`, `applied` o `ignored`.          |
+
+### `EditsResponse`
+
+| Campo                | Tipo                     | Nulo | Descripción                        |
+| -------------------- | ------------------------ | ---- | ---------------------------------- |
+| `document_id`        | `string` (UUID)          | No   | Documento dueño de las ediciones.  |
+| `edits`              | `DocumentEdit[]`         | No   | Ediciones guardadas.               |
+| `observation_states` | `ObservationStateItem[]` | No   | Estados de barreras guardados.     |
 
 ### `TextInput`
 
@@ -712,7 +769,8 @@ Ningún schema de respuesta incluye `password` ni `password_hash`.
 | Enum                | Valores                                                                              |
 | ------------------- | ------------------------------------------------------------------------------------ |
 | `SourceType`        | `pdf`, `text`                                                                        |
-| `SessionStatus`     | `uploaded`, `extracted`, `analyzed`, `completed`                                     |
+| `SessionStatus`     | `uploaded`, `extracted`, `analyzed`, `editing`, `completed`                |
+| `ObservationState`  | `pending`, `applied`, `ignored`                                            |
 | `BlockType`         | `heading`, `paragraph`, `list`, `image`                                              |
 | `Category`          | `comprehension`, `structure`, `visual`, `representation`, `multimedia`, `navigation` |
 | `Severity`          | `high`, `medium`, `low`                                                              |
@@ -1386,6 +1444,9 @@ Todas las respuestas de error tienen la forma
 | `422` | `folder_cannot_be_descendant`   | No se puede mover una carpeta dentro de sí misma.                 |
 | `404` | `document_not_found`            | El documento indicado no existe.                                  |
 | `409` | `document_update_conflict`      | No se pudo actualizar el documento.                               |
+| `422` | `invalid_block_id`              | El `block_id` no existe en el contenido extraído (o no hay contenido). |
+| `422` | `invalid_observation_id`        | El `observation_id` no existe en el diagnóstico (o no hay diagnóstico). |
+| `409` | `edit_save_conflict`            | No se pudieron guardar las ediciones.                                |
 
 Mensajes actuales de los errores de aplicación:
 
@@ -1530,3 +1591,8 @@ Debe listar las 9 rutas de negocio más `/` y `/health`.
   `email_already_registered`, `invalid_credentials` e `invalid_token`. Son
   rutas nuevas y aditivas: ninguna ruta existente cambia ni queda protegida en
   esta issue.
+- **BE-23:** se agregan `PUT` y `GET /api/v1/documents/{document_id}/edits`,
+  los modelos `EditsPayload`, `DocumentEdit`, `ObservationStateItem` y
+  `EditsResponse`, el enum `ObservationState`, el estado `editing` en
+  `SessionStatus` y los errores `invalid_block_id`, `invalid_observation_id`
+  y `edit_save_conflict`. Rutas nuevas y aditivas: ninguna ruta existente cambia.
