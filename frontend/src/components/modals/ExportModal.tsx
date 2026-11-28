@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type { Folder as FolderType } from "@/types";
+import { Button } from "@/components/ui/Button";
 
 export interface ExportModalProps {
   isOpen: boolean;
@@ -96,7 +97,7 @@ export default function ExportModal({
     }
 
     if (!onSaveToApp) {
-      setError("Guardar en Mis archivos no está disponible en esta vista.");
+      setError("Guardar en Mis documentos no está disponible en esta vista.");
       return;
     }
 
@@ -124,7 +125,7 @@ export default function ExportModal({
                 <Dialog.Title className="text-lg font-bold text-slate-900 sm:text-xl">
                   {view === "options"
                     ? "Tu material está listo"
-                    : "Guardar en Mis archivos"}
+                    : "Guardar en Mis documentos"}
                 </Dialog.Title>
                 <Dialog.Description className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
                   {view === "options"
@@ -182,7 +183,7 @@ export default function ExportModal({
                   setView("options");
                   setError("");
                 }}
-                className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600"
+                className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-slate-600 transition hover:bg-[#F4F6FC] hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600"
               >
                 <ArrowLeft aria-hidden="true" className="size-4" />
                 Volver
@@ -204,7 +205,7 @@ export default function ExportModal({
                   }}
                   maxLength={120}
                   autoFocus
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-[#C5D2E7] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -215,7 +216,7 @@ export default function ExportModal({
                 <ul
                   role="listbox"
                   aria-label="Carpetas de destino"
-                  className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2"
+                  className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-[#C5D2E7] bg-white p-2"
                 >
                   <li>
                     <button
@@ -225,8 +226,8 @@ export default function ExportModal({
                       onClick={() => setSelectedFolderId(null)}
                       className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition ${
                         selectedFolderId === null
-                          ? "bg-blue-50 text-blue-900"
-                          : "hover:bg-slate-100"
+                          ? "bg-[#E8EDFC] text-[#14203C]"
+                          : "hover:bg-[#F4F6FC]"
                       }`}
                     >
                       <Files
@@ -234,7 +235,7 @@ export default function ExportModal({
                         className="size-4 shrink-0 text-slate-500"
                       />
                       <span className="min-w-0 flex-1 truncate">
-                        Mis archivos (sin carpeta)
+                        Mis documentos (sin carpeta)
                       </span>
                       <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                         Raíz
@@ -254,8 +255,8 @@ export default function ExportModal({
                           onClick={() => setSelectedFolderId(folder.id)}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition ${
                             isSelected
-                              ? "bg-blue-50 text-blue-900"
-                              : "hover:bg-slate-100"
+                              ? "bg-[#E8EDFC] text-[#14203C]"
+                              : "hover:bg-[#F4F6FC]"
                           }`}
                         >
                           <Folder
@@ -277,7 +278,7 @@ export default function ExportModal({
               </div>
 
               {isCreatingFolder ? (
-                <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <div className="space-y-2 rounded-lg border border-[#C5D2E7] bg-[#F4F6FC] p-3">
                   <label
                     htmlFor="new-folder-name"
                     className="block text-sm font-semibold text-slate-700"
@@ -296,22 +297,24 @@ export default function ExportModal({
                       maxLength={60}
                       autoFocus
                       placeholder="Ej.: Proyectos"
-                      className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="min-w-0 flex-1 rounded-md border border-[#C5D2E7] bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-blue-100"
                     />
-                    <button
+                    <Button
                       type="button"
                       onClick={confirmNewFolder}
-                      className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      variant="lumi-primary"
+                      className="px-3"
                     >
                       Crear
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       onClick={cancelNewFolder}
-                      className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white"
+                      variant="lumi-outline"
+                      className="px-3"
                     >
                       Cancelar
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : (
@@ -321,7 +324,7 @@ export default function ExportModal({
                     setError("");
                     setIsCreatingFolder(true);
                   }}
-                  className="inline-flex items-center gap-2 rounded-md border border-dashed border-blue-300 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-500 hover:bg-blue-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-dashed border-[#C5D2E7] px-3 py-2 text-sm font-semibold text-primary transition hover:border-primary hover:bg-[#E8EDFC]"
                 >
                   <FolderPlus aria-hidden="true" className="size-4" />
                   Nueva carpeta
@@ -334,15 +337,16 @@ export default function ExportModal({
                 </p>
               )}
 
-              <button
+              <Button
                 type="button"
                 onClick={confirmSave}
                 disabled={!fileName.trim()}
-                className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-70 sm:text-base"
+                variant="lumi-primary"
+                className="min-h-12 w-full gap-3 sm:text-base"
               >
                 <Check aria-hidden="true" className="size-5" />
                 Guardar aquí
-              </button>
+              </Button>
             </div>
           )}
         </Dialog.Content>
