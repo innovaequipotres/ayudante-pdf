@@ -120,7 +120,7 @@ export default function DiagnosticoGeneralPage() {
             className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
-            Volver a mis archivos
+            Volver a mis documentos
           </Link>
         </section>
       </main>
@@ -135,7 +135,7 @@ export default function DiagnosticoGeneralPage() {
           className="mb-5 inline-flex items-center gap-2 rounded-md text-sm font-medium text-slate-600 transition hover:text-emerald-800"
         >
           <ArrowLeft aria-hidden="true" className="size-4" />
-          Mis archivos
+          Mis documentos
         </Link>
 
         <header className="mb-6 flex flex-col justify-between gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:p-6">

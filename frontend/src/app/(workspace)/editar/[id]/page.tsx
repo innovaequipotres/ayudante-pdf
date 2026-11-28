@@ -254,7 +254,7 @@ export default function EditarDocumentoPage() {
             href="/archivos"
             className="mt-6 inline-flex min-h-10 items-center justify-center rounded-md bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800"
           >
-            Volver a mis archivos
+            Volver a mis documentos
           </Link>
         </section>
       </main>
@@ -675,7 +675,7 @@ function EditorWorkspace({
     setSavedBarriers(currentBarriers);
     setSavedName(name);
     setIsExportModalOpen(false);
-    setNotice(`Se guardó "${name}" en Mis archivos.`);
+    setNotice(`Se guardó "${name}" en Mis documentos.`);
     router.push(
       folderId
         ? `/archivos?folderId=${encodeURIComponent(folderId)}`
@@ -869,7 +869,7 @@ function EditorWorkspace({
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Link
               href="/archivos"
-              aria-label="Volver a mis archivos"
+              aria-label="Volver a mis documentos"
               className="grid size-9 shrink-0 place-items-center rounded-md text-slate-600 transition hover:bg-slate-100"
             >
               <ArrowLeft aria-hidden="true" className="size-4" />
