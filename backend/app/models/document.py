@@ -28,7 +28,7 @@ class Document(Base):
             name="ck_documents_source_type",
         ),
         CheckConstraint(
-            "status IN ('uploaded', 'extracted', 'analyzed', 'completed')",
+            "status IN ('uploaded', 'extracted', 'analyzed', 'editing', 'completed')",
             name="ck_documents_status",
         ),
         CheckConstraint(

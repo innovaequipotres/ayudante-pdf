@@ -4,13 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
 class SourceType(str, Enum):
     """Origen del material educativo cargado en una sesión."""
 
     PDF = "pdf"
     TEXT = "text"
-
 
 class SessionStatus(str, Enum):
     """Estados por los que pasa una sesión de análisis."""
@@ -18,8 +16,8 @@ class SessionStatus(str, Enum):
     UPLOADED = "uploaded"
     EXTRACTED = "extracted"
     ANALYZED = "analyzed"
+    EDITING = "editing"
     COMPLETED = "completed"
-
 
 class TextInput(BaseModel):
     """Texto pegado directamente por el docente."""
@@ -35,7 +33,6 @@ class TextInput(BaseModel):
             "espacios; se valida en el servicio."
         ),
     )
-
 
 class SessionResponse(BaseModel):
     """Datos públicos de una sesión."""
