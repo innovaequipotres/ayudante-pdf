@@ -340,3 +340,36 @@ def test_empty_edits_payload_is_valid(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["edits"] == []
     assert response.json()["observation_states"] == []
+
+def test_edits_without_extracted_content_returns_422(client: TestClient) -> None:
+    """Sin contenido extraído, cualquier block_id es inexistente → 422."""
+    session = client.post(
+        "/api/v1/sessions/text",
+        json={"title": "Sin extraer", "text": "# Tema\n\nContenido."},
+    ).json()
+
+    response = client.put(
+        f"{API_PREFIX}/{session['session_id']}/edits",
+        json={"edits": [{"block_id": "b1", "text": "Texto"}],
+              "observation_states": []},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_block_id"
+
+
+def test_states_without_diagnosis_returns_422(client: TestClient) -> None:
+    """Sin diagnóstico, cualquier observation_id es inexistente → 422."""
+    session = client.post(
+        "/api/v1/sessions/text",
+        json={"title": "Sin analizar", "text": "# Tema\n\nContenido."},
+    ).json()
+
+    response = client.put(
+        f"{API_PREFIX}/{session['session_id']}/edits",
+        json={"edits": [],
+              "observation_states": [
+                  {"observation_id": "long_paragraph:b1", "state": "applied"}
+              ]},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_observation_id"

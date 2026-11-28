@@ -238,34 +238,36 @@ def save_edits(*args: Any, **kwargs: Any) -> EditsResponse:
                 status_code=404,
             )
 
-        # Validar block_ids contra el contenido extraído
+        # Validar block_ids contra el contenido extraído. Si todavía no hay
+        # contenido extraído, ningún block_id es válido.
         extracted = db.get(ExtractedContentRecord, document.id)
-        if extracted is not None:
-            valid_block_ids = {
-                block["id"] for block in extracted.payload.get("blocks", [])
-            }
-            for edit in payload.edits:
-                if edit.block_id not in valid_block_ids:
-                    raise AppError(
-                        code="invalid_block_id",
-                        message=f"El bloque '{edit.block_id}' no existe en el contenido extraído.",
-                        status_code=422,
-                    )
+        valid_block_ids = (
+            {block["id"] for block in extracted.payload.get("blocks", [])}
+            if extracted is not None
+            else set()
+        )
+        for edit in payload.edits:
+            if edit.block_id not in valid_block_ids:
+                raise AppError(
+                    code="invalid_block_id",
+                    message=f"El bloque '{edit.block_id}' no existe en el contenido extraído.",
+                    status_code=422,
+                )
 
-        # Validar observation_ids contra el diagnóstico
+        # Igual con las observaciones: sin diagnóstico, ningún id es válido.
         diagnosis = db.get(DiagnosisRecord, document.id)
-        if diagnosis is not None:
-            valid_observation_ids = {
-                obs["id"]
-                for obs in diagnosis.payload.get("observations", [])
-            }
-            for state in payload.observation_states:
-                if state.observation_id not in valid_observation_ids:
-                    raise AppError(
-                        code="invalid_observation_id",
-                        message=f"La observación '{state.observation_id}' no existe en el diagnóstico.",
-                        status_code=422,
-                    )
+        valid_observation_ids = (
+            {obs["id"] for obs in diagnosis.payload.get("observations", [])}
+            if diagnosis is not None
+            else set()
+        )
+        for state in payload.observation_states:
+            if state.observation_id not in valid_observation_ids:
+                raise AppError(
+                    code="invalid_observation_id",
+                    message=f"La observación '{state.observation_id}' no existe en el diagnóstico.",
+                    status_code=422,
+                )
 
         # Reemplazar ediciones (DELETE + INSERT)
         db.query(DocumentEdit).filter(DocumentEdit.document_id == document.id).delete()
